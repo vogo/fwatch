@@ -2,7 +2,7 @@
 
 ## Background
 
-I'd like to automatically tail all files with a given suffix in a directory and all sub-directories.
+I'd like to automatically operate all files with a given suffix in a directory and all sub-directories.
 These files not being updated for a long time should be excluded, 
 but need to be included if them being updated in a later time.
 
