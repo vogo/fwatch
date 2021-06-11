@@ -1,0 +1,16 @@
+github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
+github.com/vogo/fsnotify v1.4.9 h1:hsms1Qyu0jgnwNXIxa+/V/PDsU6CfLf6CNO8H7IWoS4=
+github.com/vogo/fsnotify v1.4.9/go.mod h1:znqG4EE+3YCdAaPaxE2ZRY/06pZUdp0tY4IgpuI1SZQ=
+github.com/vogo/fsnotify v1.4.10-0.20210606022027-82debee99362 h1:4/vGCchDpvceY4+Pr86eaR+mQjbR/gwLmEzdKciJH48=
+github.com/vogo/fsnotify v1.4.10-0.20210606022027-82debee99362/go.mod h1:eNmmuMP+7CDRMeHrX0U8GN3rAY4Ar7GprPWoW0iuBYI=
+github.com/vogo/fsnotify v1.4.10-0.20210606062753-a470c8d404e0 h1:shwCWdzShrGvCk9bhicXFMPCPbxE+EqzJtMKd3Lbrn4=
+github.com/vogo/fsnotify v1.4.10-0.20210606062753-a470c8d404e0/go.mod h1:eNmmuMP+7CDRMeHrX0U8GN3rAY4Ar7GprPWoW0iuBYI=
+github.com/vogo/logger v1.3.0 h1:dofEemPRR1eGcVsUPmFWQnQ72EiH9EXzLFZU8EN/EVQ=
+github.com/vogo/logger v1.3.0/go.mod h1:JNvSUGbxH+Et7KQrPr8Zmg9BWb4piD0yEooLiUVz+y8=
+golang.org/x/sys v0.0.0-20191005200804-aed5e4c7ecf9/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+golang.org/x/sys v0.0.0-20210603125802-9665404d3644 h1:CA1DEQ4NdKphKeL70tvsWNdT5oFh1lOjihRcEDROi0I=
+golang.org/x/sys v0.0.0-20210603125802-9665404d3644/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
+gopkg.in/natefinch/lumberjack.v2 v2.0.0 h1:1Lc07Kr7qY4U2YPouBjpCLxpiyxIVoxqXgkXLknAOE8=
+gopkg.in/natefinch/lumberjack.v2 v2.0.0/go.mod h1:l0ndWWf7gzL7RNwBG7wST/UCcT4T24xpD6X8LsfU/+k=
+gopkg.in/yaml.v2 v2.2.2/go.mod h1:hI93XBmqTisBFMUTm0b8Fm+jr3Dg1NNxqwp+5A1VGuI=
