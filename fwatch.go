@@ -64,7 +64,7 @@ var errFileMatcherNil = errors.New("fileMatcher nil")
 
 // NewFileWatcher create a new file watcher.
 func NewFileWatcher(dir string, includeSub bool, inactiveDeadline time.Duration, fileMatcher func(string) bool) (*FileWatcher, error) {
-	if !isDir(dir) {
+	if !IsDir(dir) {
 		return nil, fmt.Errorf("invalid dir %s", dir)
 	}
 
@@ -286,7 +286,7 @@ func (fw *FileWatcher) watchDir(dirWatcher *fsnotify.Watcher) {
 			}
 
 			if opMatch(event.Op, fsnotify.Create) {
-				if isDir(event.Name) {
+				if IsDir(event.Name) {
 					_ = fw.watchDirRecursively(dirWatcher, event.Name)
 
 					continue
@@ -298,7 +298,7 @@ func (fw *FileWatcher) watchDir(dirWatcher *fsnotify.Watcher) {
 			}
 
 			if opMatch(event.Op, fsnotify.Remove, fsnotify.Rename) {
-				if isDir(event.Name) {
+				if IsDir(event.Name) {
 					_ = dirWatcher.Remove(event.Name)
 				} else {
 					fw.remove(event.Name)

@@ -7,7 +7,7 @@ import (
 	"github.com/vogo/fsnotify"
 )
 
-func isDir(name string) bool {
+func IsDir(name string) bool {
 	stat, err := os.Stat(name)
 
 	return err == nil && stat != nil && stat.IsDir()
