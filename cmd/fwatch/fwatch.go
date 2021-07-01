@@ -9,13 +9,17 @@ import (
 	"github.com/vogo/logger"
 )
 
+const (
+	defaultInactiveSeconds = 60
+)
+
 func main() {
 	var (
 		dir             = flag.String("dir", "", "directory to watch")
 		logLevel        = flag.String("log_level", "", "log level(debug/info)")
 		includeSub      = flag.Bool("include_sub", false, "whether include sub-directories")
 		fileSuffix      = flag.String("suffix", "", "file suffix to watch")
-		inactiveSeconds = flag.Int64("inactive_seconds", 60, "after seconds files is inactive")
+		inactiveSeconds = flag.Int64("inactive_seconds", defaultInactiveSeconds, "after seconds files is inactive")
 	)
 
 	flag.Parse()

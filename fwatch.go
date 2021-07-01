@@ -220,15 +220,10 @@ func (fw *FileWatcher) watchDirRecursively(fsnotifyWatcher *fsnotify.Watcher, di
 		return err
 	}
 
-	var (
-		isDirPath bool
-		filePath  string
-	)
-
 	for _, info := range fileInfos {
-		filePath, isDirPath, err = unlink(filepath.Join(dir, info.Name()), info)
-		if err != nil {
-			logger.Debugf("read file error：%v", err)
+		filePath, isDirPath, pathErr := unlink(filepath.Join(dir, info.Name()), info)
+		if pathErr != nil {
+			logger.Debugf("read file error：%v", pathErr)
 
 			continue
 		}
@@ -332,7 +327,7 @@ func (fw *FileWatcher) loopCheckActive() {
 			return
 		case <-ticker.C:
 			for e := fw.activeFiles.Front(); e != nil; {
-				watchFile := e.Value.(*WatchFile)
+				watchFile, _ := e.Value.(*WatchFile)
 
 				if time.Since(watchFile.Time) < fw.inactiveDeadline {
 					e = e.Next()
