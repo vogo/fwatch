@@ -1,6 +1,7 @@
 package fwatch_test
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -23,7 +24,7 @@ func TestFileWatcher(t *testing.T) {
 
 	_ = ioutil.WriteFile(filepath.Join(otherDir, "test1.txt"), []byte("test"), filePerm)
 	_ = ioutil.WriteFile(filepath.Join(otherDir, "test2.txt"), []byte("test"), filePerm)
-	_ = ioutil.WriteFile(filepath.Join(linkDir, "test-link-dir.txt"), []byte("test"), filePerm)
+	_ = ioutil.WriteFile(filepath.Join(linkDir, "test-link-file.txt"), []byte("test"), filePerm)
 
 	_ = os.Link(filepath.Join(otherDir, "test1.txt"), filepath.Join(tempDir, "link-test1.txt"))
 	_ = os.Symlink(filepath.Join(otherDir, "test2.txt"), filepath.Join(tempDir, "link-test2.txt"))
@@ -77,49 +78,58 @@ func TestFileWatcher(t *testing.T) {
 const filePerm = 0o600
 
 func startFileUpdater(dir, otherDir string) {
-	// 1. create file
+	fmt.Println("-------- 1. create test.txt")
 	f := filepath.Join(dir, "test.txt")
 	_ = ioutil.WriteFile(f, []byte("test"), filePerm)
 
-	time.Sleep(time.Second)
+	sleep(1, "")
 
-	// 2. update file
+	fmt.Println("-------- 2. update test.txt")
 	_ = ioutil.WriteFile(f, []byte("update1"), filePerm)
 
-	time.Sleep(time.Second)
+	sleep(10, "text.txt should be consider being inactive")
 
-	// 3. update file again
+	fmt.Println("-------- 3. update test.txt again")
 	_ = ioutil.WriteFile(f, []byte("update2"), filePerm)
 
-	time.Sleep(time.Second)
+	sleep(1, "")
 
-	// 4. rename file
+	fmt.Println("--------  4. rename text.text to text-1.txt")
 	_ = os.Rename(f, filepath.Join(dir, "test-1.txt"))
 
-	time.Sleep(time.Second)
+	sleep(1, "")
 
-	// 5. rename file to other dir
-	_ = os.Rename(filepath.Join(dir, "test-1.txt"), filepath.Join(otherDir, "test-1.txt"))
+	fromPath := filepath.Join(dir, "test-1.txt")
+	toPath := filepath.Join(otherDir, "test-1.txt")
+	fmt.Printf("--------  5. rename %s to other dir %s\n", fromPath, toPath)
+	_ = os.Rename(fromPath, toPath)
 
-	// 6. create sub dir
+	fmt.Println("--------  6. create sub dir")
 	subDir := filepath.Join(dir, "sub")
 	_ = os.Mkdir(subDir, os.ModePerm)
 
-	time.Sleep(time.Second)
+	sleep(1, "")
 
-	// 7. create file in sub dir
+	fmt.Println("--------  7. create sub.txt in sub dir")
 	subFile := filepath.Join(subDir, "sub.txt")
 	_ = ioutil.WriteFile(subFile, []byte("test"), filePerm)
 
-	time.Sleep(time.Second)
+	sleep(1, "")
 
-	// 8. update file in sub dir
+	fmt.Println("--------  8. update sub.txt in sub dir")
 	_ = ioutil.WriteFile(subFile, []byte("update 1"), filePerm)
 
-	time.Sleep(time.Second * 10)
+	sleep(10, "all files should be consider being inactive")
 
-	// 9. update file again in sub dir after a long time
+	fmt.Println("--------  9. update sub.txt again in sub dir after a long time")
 	_ = ioutil.WriteFile(subFile, []byte("update 2"), filePerm)
+
+	sleep(10, "sub.txt should be consider being inactive")
+}
+
+func sleep(seconds int64, message string) {
+	fmt.Printf("\n  ==== sleep %ds --> %s\n", seconds, message)
+	time.Sleep(time.Second * time.Duration(seconds))
 }
 
 func removeFile(f string) {
