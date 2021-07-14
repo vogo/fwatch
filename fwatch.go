@@ -337,7 +337,7 @@ func (fw *FileWatcher) loopCheckActive() {
 
 				stat, err := os.Stat(watchFile.Name)
 				if err != nil {
-					logger.Debugf("check active file stat error: %v", err)
+					logger.Infof("check active file stat error: %v", err)
 
 					next := e.Next()
 					fw.activeFiles.Remove(e)
