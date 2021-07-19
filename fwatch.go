@@ -34,9 +34,12 @@ type FileWatcher struct {
 	// whether to include sub-directories
 	includeSub bool
 
-	// a file slice to schedule check whether not updated for a long time,
-	// if yes then stop active and add it to watching file slice.
+	// a file list to schedule check whether not being updated for a long time,
+	// if yes then stop active and add it to inactive file watch list.
 	activeFiles *list.List
+
+	// a file map to avoid duplicated file event.
+	activeFilesMap map[string]*WatchFile
 
 	// a duration if a file not being updated in, then move it to watch file list.
 	inactiveDeadline time.Duration
@@ -81,6 +84,7 @@ func NewFileWatcher(dir string, includeSub bool, inactiveDeadline time.Duration,
 		dir:              dir,
 		includeSub:       includeSub,
 		inactiveDeadline: inactiveDeadline,
+		activeFilesMap:   make(map[string]*WatchFile),
 		activeFiles:      list.New(),
 		Done:             make(chan struct{}),
 		ActiveChan:       make(chan *WatchFile, fileChangeChanSize),
@@ -94,11 +98,19 @@ func (fw *FileWatcher) addActive(name string) {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
 
+	if _, ok := fw.activeFilesMap[name]; ok {
+		logger.Debugf("duplicated add active file: %s", name)
+
+		return
+	}
+
 	f := &WatchFile{
 		Name: name,
 		Time: time.Now(),
 	}
+
 	fw.activeFiles.PushBack(f)
+	fw.activeFilesMap[f.Name] = f
 
 	fw.ActiveChan <- f
 }
@@ -107,18 +119,23 @@ func (fw *FileWatcher) addInactive(wf *WatchFile) {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
 
+	delete(fw.activeFilesMap, wf.Name)
+
 	logger.Debugf("add inactive file: %s", wf.Name)
 
 	if err := fw.updateWatcher.AddWatch(wf.Name, fileWriteDeleteEvents); err != nil {
 		logger.Warnf("watch file write event error: %s, %v", wf.Name, err)
-
-		return
 	}
 
 	fw.InactiveChan <- wf
 }
 
 func (fw *FileWatcher) remove(name string) {
+	fw.mu.Lock()
+	defer fw.mu.Unlock()
+
+	delete(fw.activeFilesMap, name)
+
 	fw.RemoveChan <- name
 }
 
@@ -168,11 +185,7 @@ func (fw *FileWatcher) watchInactiveFiles() {
 				return
 			}
 
-			logger.Debugf("file event: %v", event)
-
-			if !fw.fileMatcher(event.Name) {
-				continue
-			}
+			logger.Debugf("inactive file event: %v", event)
 
 			if event.Op&fsnotify.Remove == fsnotify.Remove {
 				fw.remove(event.Name)
@@ -182,6 +195,8 @@ func (fw *FileWatcher) watchInactiveFiles() {
 			}
 
 			if event.Op&fsnotify.Write == fsnotify.Write {
+				_ = fw.updateWatcher.Remove(event.Name)
+
 				fw.addActive(event.Name)
 			}
 		case err, ok := <-fw.updateWatcher.Errors:
@@ -273,38 +288,7 @@ func (fw *FileWatcher) watchDir(dirWatcher *fsnotify.Watcher) {
 				return
 			}
 
-			logger.Debugf("dir event: %v", event)
-
-			// ignore root dir events
-			if event.Name == "" || event.Name == "." {
-				continue
-			}
-
-			if opMatch(event.Op, fsnotify.Create) {
-				if IsDir(event.Name) {
-					_ = fw.watchDirRecursively(dirWatcher, event.Name)
-
-					continue
-				}
-
-				fw.addActive(event.Name)
-
-				continue
-			}
-
-			if opMatch(event.Op, fsnotify.Remove, fsnotify.Rename) {
-				if IsDir(event.Name) {
-					_ = dirWatcher.Remove(event.Name)
-				} else {
-					fw.remove(event.Name)
-				}
-
-				continue
-			}
-
-			if opMatch(event.Op, fsnotify.Write) {
-				fw.addActive(event.Name)
-			}
+			fw.handleDirEvent(dirWatcher, event)
 		case err, ok := <-dirWatcher.Errors:
 			if !ok {
 				logger.Warnf("failed to listen error event")
@@ -314,6 +298,45 @@ func (fw *FileWatcher) watchDir(dirWatcher *fsnotify.Watcher) {
 
 			logger.Errorf("watch dir error: %v", err)
 		}
+	}
+}
+
+func (fw *FileWatcher) handleDirEvent(dirWatcher *fsnotify.Watcher, event fsnotify.Event) {
+	logger.Debugf("dir event: %v", event)
+
+	// ignore root dir events
+	if event.Name == "" || event.Name == "." {
+		return
+	}
+
+	if !fw.fileMatcher(event.Name) {
+		return
+	}
+
+	if opMatch(event.Op, fsnotify.Create) {
+		if IsDir(event.Name) {
+			_ = fw.watchDirRecursively(dirWatcher, event.Name)
+
+			return
+		}
+
+		fw.addActive(event.Name)
+
+		return
+	}
+
+	if opMatch(event.Op, fsnotify.Remove, fsnotify.Rename) {
+		if IsDir(event.Name) {
+			_ = dirWatcher.Remove(event.Name)
+		} else {
+			fw.remove(event.Name)
+		}
+
+		return
+	}
+
+	if opMatch(event.Op, fsnotify.Write) {
+		fw.addActive(event.Name)
 	}
 }
 
