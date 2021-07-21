@@ -340,9 +340,16 @@ func (fw *FileWatcher) handleDirEvent(dirWatcher *fsnotify.Watcher, event fsnoti
 	}
 }
 
+const maxActiveCheckInterval = time.Minute * 5
+
 // loopCheckActive check all active files, check whether it's already inactive.
 func (fw *FileWatcher) loopCheckActive() {
-	ticker := time.NewTicker(fw.inactiveDeadline)
+	checkInterval := fw.inactiveDeadline
+	if checkInterval > maxActiveCheckInterval {
+		checkInterval = maxActiveCheckInterval
+	}
+
+	ticker := time.NewTicker(checkInterval)
 
 	for {
 		select {
