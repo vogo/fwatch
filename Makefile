@@ -9,7 +9,7 @@ check:
 		golangci-lint run
 
 test:
-		go test
+		go test -coverprofile=coverage.txt -covermode=atomic
 
 test-linux:
 		docker run --rm -v $(shell pwd):/projectdir \

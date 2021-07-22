@@ -123,7 +123,7 @@ func (fw *FileWatcher) addInactive(wf *WatchFile) {
 
 	logger.Debugf("add inactive file: %s", wf.Name)
 
-	if err := fw.updateWatcher.AddWatch(wf.Name, fileWriteDeleteEvents); err != nil {
+	if err := fw.updateWatcher.AddWatch(wf.Name, FileWriteDeleteEvents); err != nil {
 		logger.Warnf("watch file write event error: %s, %v", wf.Name, err)
 	}
 
@@ -212,7 +212,7 @@ func (fw *FileWatcher) watchInactiveFiles() {
 }
 
 func (fw *FileWatcher) watchDirRecursively(fsnotifyWatcher *fsnotify.Watcher, dir string) error {
-	err := fsnotifyWatcher.AddWatch(dir, fileCreateDeleteEvents)
+	err := fsnotifyWatcher.AddWatch(dir, FileCreateDeleteEvents)
 	if err != nil {
 		logger.Fatal(err)
 	}
