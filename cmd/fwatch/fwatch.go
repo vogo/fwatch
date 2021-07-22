@@ -32,7 +32,7 @@ func main() {
 		logger.SetLevel(logger.LevelDebug)
 	}
 
-	watcher, err := fwatch.NewFileWatcher(*dir, *includeSub, time.Duration(*inactiveSeconds)*time.Second, func(s string) bool {
+	watcher, err := fwatch.NewFileWatcher(*dir, *includeSub, false, time.Duration(*inactiveSeconds)*time.Second, func(s string) bool {
 		return *fileSuffix == "" || strings.HasSuffix(s, *fileSuffix)
 	})
 	if err != nil {
