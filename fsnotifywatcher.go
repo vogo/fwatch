@@ -49,8 +49,8 @@ func NewOsEventFsNotifyWatcher() (FsNotifyWatcher, error) {
 
 const half2 = 2
 
-func NewFsNotifyWatcher(timerCheck bool, deadline time.Duration, matcher FileMatcher) (FsNotifyWatcher, error) {
-	if timerCheck {
+func NewFsNotifyWatcher(method WatchMethod, deadline time.Duration, matcher FileMatcher) (FsNotifyWatcher, error) {
+	if method == WatchMethodTimer {
 		interval := deadline / half2
 
 		if interval > time.Minute {

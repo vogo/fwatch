@@ -16,6 +16,7 @@ const (
 func main() {
 	var (
 		dir             = flag.String("dir", "", "directory to watch")
+		method          = flag.String("method", "", "watch method, os/timer")
 		logLevel        = flag.String("log_level", "", "log level(debug/info)")
 		includeSub      = flag.Bool("include_sub", false, "whether include sub-directories")
 		fileSuffix      = flag.String("suffix", "", "file suffix to watch")
@@ -32,9 +33,12 @@ func main() {
 		logger.SetLevel(logger.LevelDebug)
 	}
 
-	watcher, err := fwatch.NewFileWatcher(*dir, *includeSub, false, time.Duration(*inactiveSeconds)*time.Second, func(s string) bool {
-		return *fileSuffix == "" || strings.HasSuffix(s, *fileSuffix)
-	})
+	var watchMethod interface{} = *method
+
+	watcher, err := fwatch.NewFileWatcher(*dir, *includeSub, watchMethod.(fwatch.WatchMethod),
+		time.Duration(*inactiveSeconds)*time.Second, func(s string) bool {
+			return *fileSuffix == "" || strings.HasSuffix(s, *fileSuffix)
+		})
 	if err != nil {
 		logger.Fatal(err)
 	}

@@ -14,12 +14,12 @@ import (
 func TestFileWatcher(t *testing.T) {
 	t.Parallel()
 
-	doTestTypedFileWatcher(t, true)
+	doTestTypedFileWatcher(t, fwatch.WatchMethodTimer)
 
-	doTestTypedFileWatcher(t, false)
+	doTestTypedFileWatcher(t, fwatch.WatchMethodOS)
 }
 
-func doTestTypedFileWatcher(t *testing.T, timerCheck bool) {
+func doTestTypedFileWatcher(t *testing.T, method fwatch.WatchMethod) {
 	t.Helper()
 
 	otherDir := filepath.Join(os.TempDir(), "fwatch-other")
@@ -41,7 +41,7 @@ func doTestTypedFileWatcher(t *testing.T, timerCheck bool) {
 	defer removeFile(linkDir)
 	defer removeFile(tempDir)
 
-	fileWatcher, err := fwatch.NewFileWatcher(tempDir, true, timerCheck, time.Second*5, func(s string) bool {
+	fileWatcher, err := fwatch.NewFileWatcher(tempDir, true, method, time.Second*5, func(s string) bool {
 		return true
 	})
 	if err != nil {

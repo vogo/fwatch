@@ -18,8 +18,20 @@ const (
 	minimalInactiveDeadline = 5 * time.Second
 )
 
+type WatchMethod string
+
+const (
+	// WatchMethodOS using os file system api to watch file events.
+	WatchMethodOS WatchMethod = "os"
+
+	// WatchMethodTimer interval schedule check stat of files and trigger file change events.
+	WatchMethodTimer WatchMethod = "timer"
+)
+
+// FileMatcher whether a file name matches.
 type FileMatcher func(string) bool
 
+// WatchFile watch file info.
 type WatchFile struct {
 	Name string
 	Time time.Time
@@ -36,8 +48,8 @@ type FileWatcher struct {
 	// whether to include sub-directories
 	includeSub bool
 
-	// whether create timer check watcher.
-	timerCheck bool
+	// watch method, os or timer.
+	method WatchMethod
 
 	// a file list to schedule checkFiles whether not being updated for a long time,
 	// if yes then stop active and add it to inactive file watch list.
@@ -71,7 +83,7 @@ type FileWatcher struct {
 var errFileMatcherNil = errors.New("fileMatcher nil")
 
 // NewFileWatcher create a new file watcher.
-func NewFileWatcher(dir string, includeSub bool, timerCheck bool,
+func NewFileWatcher(dir string, includeSub bool, watchMethod WatchMethod,
 	inactiveDeadline time.Duration, fileMatcher func(string) bool) (*FileWatcher, error) {
 	if !IsDir(dir) {
 		return nil, fmt.Errorf("invalid dir %s", dir)
@@ -89,6 +101,7 @@ func NewFileWatcher(dir string, includeSub bool, timerCheck bool,
 		mu:               sync.Mutex{},
 		dir:              dir,
 		includeSub:       includeSub,
+		method:           watchMethod,
 		inactiveDeadline: inactiveDeadline,
 		activeFilesMap:   make(map[string]*WatchFile),
 		activeFiles:      list.New(),
@@ -97,7 +110,6 @@ func NewFileWatcher(dir string, includeSub bool, timerCheck bool,
 		InactiveChan:     make(chan *WatchFile, defaultMapSize),
 		RemoveChan:       make(chan string, defaultMapSize),
 		fileMatcher:      fileMatcher,
-		timerCheck:       timerCheck,
 	}, nil
 }
 
@@ -148,13 +160,13 @@ func (fw *FileWatcher) remove(name string) {
 
 func (fw *FileWatcher) Start() error {
 	var err error
-	fw.updateWatcher, err = NewFsNotifyWatcher(fw.timerCheck, 0, fw.fileMatcher)
+	fw.updateWatcher, err = NewFsNotifyWatcher(fw.method, 0, fw.fileMatcher)
 
 	if err != nil {
 		return err
 	}
 
-	dirWatcher, err := NewFsNotifyWatcher(fw.timerCheck, fw.inactiveDeadline, fw.fileMatcher)
+	dirWatcher, err := NewFsNotifyWatcher(fw.method, fw.inactiveDeadline, fw.fileMatcher)
 	if err != nil {
 		return err
 	}
