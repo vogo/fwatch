@@ -45,6 +45,9 @@ type FileWatcher struct {
 	// root directory to watch
 	dir string
 
+	// watch directories, used to avoid duplicated watching.
+	dirs map[string]struct{}
+
 	// whether to include sub-directories
 	includeSub bool
 
@@ -100,6 +103,7 @@ func NewFileWatcher(dir string, includeSub bool, watchMethod WatchMethod,
 	return &FileWatcher{
 		mu:               sync.Mutex{},
 		dir:              dir,
+		dirs:             make(map[string]struct{}, defaultMapSize),
 		includeSub:       includeSub,
 		method:           watchMethod,
 		inactiveDeadline: inactiveDeadline,
@@ -231,10 +235,17 @@ func (fw *FileWatcher) watchInactiveFiles() {
 }
 
 func (fw *FileWatcher) watchDirRecursively(fsnotifyWatcher FsNotifyWatcher, dir string) error {
+	// ignore duplicated directory
+	if _, ok := fw.dirs[dir]; ok {
+		return nil
+	}
+
 	err := fsnotifyWatcher.AddWatch(dir, FileCreateDeleteEvents)
 	if err != nil {
 		logger.Fatal(err)
 	}
+
+	fw.dirs[dir] = struct{}{}
 
 	logger.Infof("start watch directory: %s", dir)
 
@@ -255,38 +266,42 @@ func (fw *FileWatcher) watchDirRecursively(fsnotifyWatcher FsNotifyWatcher, dir 
 	}
 
 	for _, info := range fileInfos {
-		filePath, isDirPath, pathErr := unlink(filepath.Join(dir, info.Name()), info)
-		if pathErr != nil {
-			logger.Debugf("read file error：%v", pathErr)
-
-			continue
-		}
-
-		if isDirPath {
-			if fw.includeSub {
-				go func() {
-					_ = fw.watchDirRecursively(fsnotifyWatcher, filePath)
-				}()
-			}
-
-			continue
-		}
-
-		if !fw.fileMatcher(filePath) {
-			continue
-		}
-
-		if time.Since(info.ModTime()) < fw.inactiveDeadline {
-			fw.addActive(filePath)
-		} else {
-			fw.addInactive(&WatchFile{
-				Name: filePath,
-				Time: info.ModTime(),
-			})
-		}
+		fw.watchSubFile(fsnotifyWatcher, dir, info)
 	}
 
 	return nil
+}
+
+func (fw *FileWatcher) watchSubFile(fsnotifyWatcher FsNotifyWatcher, dir string, info os.FileInfo) {
+	filePath, isDirPath, pathErr := unlink(filepath.Join(dir, info.Name()), info)
+	if pathErr != nil {
+		logger.Debugf("read file error：%v", pathErr)
+
+		return
+	}
+
+	if isDirPath {
+		if fw.includeSub {
+			go func() {
+				_ = fw.watchDirRecursively(fsnotifyWatcher, filePath)
+			}()
+		}
+
+		return
+	}
+
+	if !fw.fileMatcher(filePath) {
+		return
+	}
+
+	if time.Since(info.ModTime()) < fw.inactiveDeadline {
+		fw.addActive(filePath)
+	} else {
+		fw.addInactive(&WatchFile{
+			Name: filePath,
+			Time: info.ModTime(),
+		})
+	}
 }
 
 func (fw *FileWatcher) watchDir(dirWatcher FsNotifyWatcher) {
