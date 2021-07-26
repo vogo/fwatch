@@ -234,18 +234,32 @@ func (fw *FileWatcher) watchInactiveFiles() {
 	}
 }
 
-func (fw *FileWatcher) watchDirRecursively(fsnotifyWatcher FsNotifyWatcher, dir string) error {
+// fsnotifyWatchDir file system watch directory, return true if success.
+func (fw *FileWatcher) fsnotifyWatchDir(fsnotifyWatcher FsNotifyWatcher, dir string) bool {
+	fw.mu.Lock()
+	defer fw.mu.Unlock()
+
 	// ignore duplicated directory
 	if _, ok := fw.dirs[dir]; ok {
-		return nil
+		return false
 	}
 
 	err := fsnotifyWatcher.AddWatch(dir, FileCreateDeleteEvents)
 	if err != nil {
-		logger.Fatal(err)
+		logger.Errorf("fs watch dire error: %v", err)
+
+		return false
 	}
 
 	fw.dirs[dir] = struct{}{}
+
+	return true
+}
+
+func (fw *FileWatcher) watchDirRecursively(fsnotifyWatcher FsNotifyWatcher, dir string) error {
+	if !fw.fsnotifyWatchDir(fsnotifyWatcher, dir) {
+		return nil
+	}
 
 	logger.Infof("start watch directory: %s", dir)
 
