@@ -74,7 +74,7 @@ type FileWatcher struct {
 	RemoveChan chan string
 
 	// fsnotify file watcher to watch inactive files being updated.
-	updateWatcher FsNotifyWatcher
+	updateWatcher FsWatcher
 
 	// chan to control watching goroutines
 	Done chan struct{}
@@ -146,7 +146,7 @@ func (fw *FileWatcher) addInactive(wf *WatchFile) {
 
 	logger.Debugf("add inactive file: %s", wf.Name)
 
-	if err := fw.updateWatcher.AddWatch(wf.Name, FileWriteDeleteEvents); err != nil {
+	if err := fw.updateWatcher.AddWatch(wf.Name, FileWriteRemoveEvents); err != nil {
 		logger.Warnf("watch file write event error: %s, %v", wf.Name, err)
 	}
 
@@ -164,13 +164,13 @@ func (fw *FileWatcher) remove(name string) {
 
 func (fw *FileWatcher) Start() error {
 	var err error
-	fw.updateWatcher, err = NewFsNotifyWatcher(fw.method, 0, fw.fileMatcher)
+	fw.updateWatcher, err = NewFsWatcher(fw.method, 0, fw.fileMatcher)
 
 	if err != nil {
 		return err
 	}
 
-	dirWatcher, err := NewFsNotifyWatcher(fw.method, fw.inactiveDeadline, fw.fileMatcher)
+	dirWatcher, err := NewFsWatcher(fw.method, fw.inactiveDeadline, fw.fileMatcher)
 	if err != nil {
 		return err
 	}
@@ -235,7 +235,7 @@ func (fw *FileWatcher) watchInactiveFiles() {
 }
 
 // fsnotifyWatchDir file system watch directory, return true if success.
-func (fw *FileWatcher) fsnotifyWatchDir(fsnotifyWatcher FsNotifyWatcher, dir string) bool {
+func (fw *FileWatcher) fsnotifyWatchDir(fsnotifyWatcher FsWatcher, dir string) bool {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
 
@@ -244,9 +244,9 @@ func (fw *FileWatcher) fsnotifyWatchDir(fsnotifyWatcher FsNotifyWatcher, dir str
 		return false
 	}
 
-	err := fsnotifyWatcher.AddWatch(dir, FileCreateDeleteEvents)
+	err := fsnotifyWatcher.AddWatch(dir, FileCreateRemoveEvents)
 	if err != nil {
-		logger.Errorf("fs watch dire error: %v", err)
+		logger.Errorf("fs watch directory error: %v", err)
 
 		return false
 	}
@@ -256,7 +256,7 @@ func (fw *FileWatcher) fsnotifyWatchDir(fsnotifyWatcher FsNotifyWatcher, dir str
 	return true
 }
 
-func (fw *FileWatcher) watchDirRecursively(fsnotifyWatcher FsNotifyWatcher, dir string) error {
+func (fw *FileWatcher) watchDirRecursively(fsnotifyWatcher FsWatcher, dir string) error {
 	if !fw.fsnotifyWatchDir(fsnotifyWatcher, dir) {
 		return nil
 	}
@@ -286,7 +286,7 @@ func (fw *FileWatcher) watchDirRecursively(fsnotifyWatcher FsNotifyWatcher, dir 
 	return nil
 }
 
-func (fw *FileWatcher) watchSubFile(fsnotifyWatcher FsNotifyWatcher, dir string, info os.FileInfo) {
+func (fw *FileWatcher) watchSubFile(fsnotifyWatcher FsWatcher, dir string, info os.FileInfo) {
 	filePath, isDirPath, pathErr := unlink(filepath.Join(dir, info.Name()), info)
 	if pathErr != nil {
 		logger.Debugf("read file error：%v", pathErr)
@@ -318,7 +318,7 @@ func (fw *FileWatcher) watchSubFile(fsnotifyWatcher FsNotifyWatcher, dir string,
 	}
 }
 
-func (fw *FileWatcher) watchDir(dirWatcher FsNotifyWatcher) {
+func (fw *FileWatcher) watchDir(dirWatcher FsWatcher) {
 	defer func() {
 		logger.Warnf("stop watch directory")
 
@@ -349,7 +349,7 @@ func (fw *FileWatcher) watchDir(dirWatcher FsNotifyWatcher) {
 	}
 }
 
-func (fw *FileWatcher) handleDirEvent(dirWatcher FsNotifyWatcher, event fsnotify.Event) {
+func (fw *FileWatcher) handleDirEvent(dirWatcher FsWatcher, event fsnotify.Event) {
 	logger.Debugf("dir event: %v", event)
 
 	// ignore root dir events

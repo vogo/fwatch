@@ -14,12 +14,12 @@ const (
 	// FileRenameEvents events for file rename.
 	FileRenameEvents = unix.IN_MOVE | unix.IN_MOVED_TO | unix.IN_MOVED_FROM | unix.IN_MOVE_SELF
 
-	// FileDeleteEvents events for file delete.
-	FileDeleteEvents = unix.IN_DELETE | unix.IN_DELETE_SELF
+	// FileRemoveEvents events for file remove.
+	FileRemoveEvents = unix.IN_DELETE | unix.IN_DELETE_SELF
 
-	// FileCreateDeleteEvents events for file create and delete.
-	FileCreateDeleteEvents = FileCreateEvents | FileDeleteEvents | FileRenameEvents
+	// FileCreateRemoveEvents events for file create and remove.
+	FileCreateRemoveEvents = FileCreateEvents | FileRemoveEvents | FileRenameEvents
 
-	// FileWriteDeleteEvents events for file write and delete.
-	FileWriteDeleteEvents = FileWriteEvents | FileDeleteEvents | FileRenameEvents
+	// FileWriteRemoveEvents events for file write and remove.
+	FileWriteRemoveEvents = FileWriteEvents | FileRemoveEvents | FileRenameEvents
 )

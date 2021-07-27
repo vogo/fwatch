@@ -13,12 +13,12 @@ import (
 type watchStat struct {
 	watchCreate bool
 	watchRename bool
-	watchDelete bool
+	watchRemove bool
 	watchWrite  bool
 	modTime     time.Time
 }
 
-type TimerCheckFsNotifyWatcher struct {
+type TimerFsWatcher struct {
 	mu      sync.Mutex
 	once    sync.Once
 	done    chan struct{}
@@ -29,8 +29,8 @@ type TimerCheckFsNotifyWatcher struct {
 	matcher FileMatcher
 }
 
-func NewTimerCheckFsNotifyWatcher(interval time.Duration, matcher FileMatcher) (FsNotifyWatcher, error) {
-	w := &TimerCheckFsNotifyWatcher{
+func NewTimerFsWatcher(interval time.Duration, matcher FileMatcher) (FsWatcher, error) {
+	w := &TimerFsWatcher{
 		mu:      sync.Mutex{},
 		once:    sync.Once{},
 		done:    make(chan struct{}),
@@ -46,17 +46,17 @@ func NewTimerCheckFsNotifyWatcher(interval time.Duration, matcher FileMatcher) (
 	return w, nil
 }
 
-func (tcw *TimerCheckFsNotifyWatcher) Events() <-chan fsnotify.Event {
-	return tcw.events
+func (tfw *TimerFsWatcher) Events() <-chan fsnotify.Event {
+	return tfw.events
 }
 
-func (tcw *TimerCheckFsNotifyWatcher) Errors() <-chan error {
-	return tcw.errors
+func (tfw *TimerFsWatcher) Errors() <-chan error {
+	return tfw.errors
 }
 
-func (tcw *TimerCheckFsNotifyWatcher) AddWatch(name string, flags uint32) error {
-	tcw.mu.Lock()
-	defer tcw.mu.Unlock()
+func (tfw *TimerFsWatcher) AddWatch(name string, flags uint32) error {
+	tfw.mu.Lock()
+	defer tfw.mu.Unlock()
 
 	var (
 		s  *watchStat
@@ -64,75 +64,77 @@ func (tcw *TimerCheckFsNotifyWatcher) AddWatch(name string, flags uint32) error 
 	)
 
 	if IsDir(name) {
-		s, ok = tcw.dirs[name]
+		s, ok = tfw.dirs[name]
 		if !ok {
 			s = &watchStat{modTime: time.Now()}
-			tcw.dirs[name] = s
+			tfw.dirs[name] = s
 		}
 	} else {
-		s, ok = tcw.files[name]
+		s, ok = tfw.files[name]
 		if !ok {
 			s = &watchStat{modTime: time.Now()}
-			tcw.files[name] = s
+			tfw.files[name] = s
 		}
 	}
 
 	s.watchCreate = flags&FileCreateEvents > 0
 	s.watchCreate = flags&FileRenameEvents > 0
-	s.watchDelete = flags&FileDeleteEvents > 0
+	s.watchRemove = flags&FileRemoveEvents > 0
 	s.watchWrite = flags&FileWriteEvents > 0
 
 	return nil
 }
 
-func (tcw *TimerCheckFsNotifyWatcher) Remove(name string) error {
-	tcw.mu.Lock()
-	defer tcw.mu.Unlock()
+func (tfw *TimerFsWatcher) Remove(name string) error {
+	tfw.mu.Lock()
+	defer tfw.mu.Unlock()
 
-	delete(tcw.files, name)
-	delete(tcw.dirs, name)
+	delete(tfw.files, name)
+	delete(tfw.dirs, name)
 
 	return nil
 }
 
-func (tcw *TimerCheckFsNotifyWatcher) Close() error {
-	tcw.once.Do(func() {
-		close(tcw.done)
+func (tfw *TimerFsWatcher) Close() error {
+	tfw.once.Do(func() {
+		close(tfw.done)
 	})
 
 	return nil
 }
 
-func (tcw *TimerCheckFsNotifyWatcher) startTimerCheck(interval time.Duration) {
+func (tfw *TimerFsWatcher) startTimerCheck(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 
 	for {
 		select {
-		case <-tcw.done:
+		case <-tfw.done:
 			return
 		case <-ticker.C:
-			tcw.checkFiles()
-			tcw.checkDirs()
+			tfw.checkFiles()
+			tfw.checkDirs()
 		}
 	}
 }
 
-func (tcw *TimerCheckFsNotifyWatcher) checkFiles() {
-	for f, t := range tcw.files {
+func (tfw *TimerFsWatcher) checkFiles() {
+	for f, stat := range tfw.files {
 		info, err := os.Stat(f)
 		if err != nil {
-			delete(tcw.files, f)
+			delete(tfw.files, f)
 
 			if os.IsNotExist(err) {
-				tcw.events <- fsnotify.Event{
-					Name: f,
-					Op:   fsnotify.Remove,
+				if stat.watchRemove {
+					tfw.events <- fsnotify.Event{
+						Name: f,
+						Op:   fsnotify.Remove,
+					}
 				}
 
 				continue
 			}
 
-			tcw.errors <- err
+			tfw.errors <- err
 
 			continue
 		}
@@ -141,9 +143,9 @@ func (tcw *TimerCheckFsNotifyWatcher) checkFiles() {
 			continue
 		}
 
-		if t.watchWrite && info.ModTime().After(t.modTime) {
-			t.modTime = info.ModTime()
-			tcw.events <- fsnotify.Event{
+		if stat.watchWrite && info.ModTime().After(stat.modTime) {
+			stat.modTime = info.ModTime()
+			tfw.events <- fsnotify.Event{
 				Name: f,
 				Op:   fsnotify.Write,
 			}
@@ -151,11 +153,11 @@ func (tcw *TimerCheckFsNotifyWatcher) checkFiles() {
 	}
 }
 
-func (tcw *TimerCheckFsNotifyWatcher) checkDirs() {
-	for dir, t := range tcw.dirs {
+func (tfw *TimerFsWatcher) checkDirs() {
+	for dir, stat := range tfw.dirs {
 		f, err := os.Open(dir)
 		if err != nil {
-			tcw.handleDirError(dir, err)
+			tfw.handleDirError(dir, stat, err)
 
 			continue
 		}
@@ -164,7 +166,7 @@ func (tcw *TimerCheckFsNotifyWatcher) checkDirs() {
 		_ = f.Close()
 
 		if err != nil {
-			tcw.handleDirError(dir, err)
+			tfw.handleDirError(dir, stat, err)
 
 			continue
 		}
@@ -178,59 +180,65 @@ func (tcw *TimerCheckFsNotifyWatcher) checkDirs() {
 			}
 
 			if isDirPath {
-				tcw.addDir(filePath, t)
+				tfw.addDir(filePath, stat)
 
 				continue
 			}
 
-			tcw.addFile(filePath, t, info.ModTime())
+			if !tfw.matcher(info.Name()) {
+				continue
+			}
+
+			tfw.addFile(filePath, stat, info.ModTime())
 		}
 	}
 }
 
-func (tcw *TimerCheckFsNotifyWatcher) handleDirError(dir string, err error) {
-	delete(tcw.dirs, dir)
+func (tfw *TimerFsWatcher) handleDirError(dir string, stat *watchStat, err error) {
+	delete(tfw.dirs, dir)
 
 	if os.IsNotExist(err) {
-		tcw.events <- fsnotify.Event{
-			Name: dir,
-			Op:   fsnotify.Remove,
+		if stat.watchRemove {
+			tfw.events <- fsnotify.Event{
+				Name: dir,
+				Op:   fsnotify.Remove,
+			}
 		}
 
 		return
 	}
 
-	tcw.errors <- err
+	tfw.errors <- err
 }
 
-func (tcw *TimerCheckFsNotifyWatcher) addDir(dir string, t *watchStat) {
-	if _, ok := tcw.dirs[dir]; ok {
+func (tfw *TimerFsWatcher) addDir(dir string, t *watchStat) {
+	if _, ok := tfw.dirs[dir]; ok {
 		return
 	}
 
-	tcw.dirs[dir] = &watchStat{
+	tfw.dirs[dir] = &watchStat{
 		watchCreate: t.watchCreate,
 		watchRename: t.watchRename,
-		watchDelete: t.watchDelete,
+		watchRemove: t.watchRemove,
 		watchWrite:  t.watchWrite,
 		modTime:     time.Now(),
 	}
 }
 
-func (tcw *TimerCheckFsNotifyWatcher) addFile(path string, t *watchStat, modTime time.Time) {
-	if _, ok := tcw.files[path]; ok {
+func (tfw *TimerFsWatcher) addFile(path string, t *watchStat, modTime time.Time) {
+	if _, ok := tfw.files[path]; ok {
 		return
 	}
 
-	tcw.files[path] = &watchStat{
+	tfw.files[path] = &watchStat{
 		watchCreate: t.watchCreate,
 		watchRename: t.watchRename,
-		watchDelete: t.watchDelete,
+		watchRemove: t.watchRemove,
 		watchWrite:  t.watchWrite,
 		modTime:     modTime,
 	}
 
-	tcw.events <- fsnotify.Event{
+	tfw.events <- fsnotify.Event{
 		Name: path,
 		Op:   fsnotify.Create,
 	}

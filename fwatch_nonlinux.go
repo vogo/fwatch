@@ -15,12 +15,12 @@ const (
 	// FileRenameEvents events for file rename.
 	FileRenameEvents = unix.NOTE_RENAME
 
-	// FileDeleteEvents events for file delete.
-	FileDeleteEvents = unix.NOTE_DELETE
+	// FileRemoveEvents events for file remove.
+	FileRemoveEvents = unix.NOTE_DELETE
 
-	// FileCreateDeleteEvents events for file create and delete.
-	FileCreateDeleteEvents = FileCreateEvents | FileDeleteEvents | FileRenameEvents
+	// FileCreateRemoveEvents events for file create and remove.
+	FileCreateRemoveEvents = FileCreateEvents | FileRemoveEvents | FileRenameEvents
 
-	// FileWriteDeleteEvents events for file write and delete.
-	FileWriteDeleteEvents = FileWriteEvents | FileDeleteEvents | FileRenameEvents
+	// FileWriteRemoveEvents events for file write and remove.
+	FileWriteRemoveEvents = FileWriteEvents | FileRemoveEvents | FileRenameEvents
 )

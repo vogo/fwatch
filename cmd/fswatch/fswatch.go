@@ -22,7 +22,7 @@ func main() {
 		_ = watcher.Close()
 	}()
 
-	if err = watcher.AddWatch(*f, fwatch.FileWriteDeleteEvents); err != nil {
+	if err = watcher.AddWatch(*f, fwatch.FileWriteRemoveEvents); err != nil {
 		logger.Fatal(err)
 	}
 
