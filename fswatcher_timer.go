@@ -19,9 +19,13 @@ type watchStat struct {
 }
 
 type TimerFsWatcher struct {
-	mu      sync.Mutex
-	once    sync.Once
-	done    chan struct{}
+	mu   sync.Mutex
+	once sync.Once
+	done chan struct{}
+
+	// a period time after which a file not being updated, then not need to check it and generate a remove event.
+	silencePeriod time.Duration
+
 	events  chan fsnotify.Event
 	errors  chan error
 	dirs    map[string]*watchStat
@@ -29,16 +33,17 @@ type TimerFsWatcher struct {
 	matcher FileMatcher
 }
 
-func NewTimerFsWatcher(interval time.Duration, matcher FileMatcher) (FsWatcher, error) {
+func NewTimerFsWatcher(interval, silencePeriod time.Duration, matcher FileMatcher) (FsWatcher, error) {
 	w := &TimerFsWatcher{
-		mu:      sync.Mutex{},
-		once:    sync.Once{},
-		done:    make(chan struct{}),
-		events:  make(chan fsnotify.Event),
-		errors:  make(chan error),
-		dirs:    make(map[string]*watchStat, defaultMapSize),
-		files:   make(map[string]*watchStat, defaultMapSize),
-		matcher: matcher,
+		mu:            sync.Mutex{},
+		once:          sync.Once{},
+		done:          make(chan struct{}),
+		silencePeriod: silencePeriod,
+		events:        make(chan fsnotify.Event),
+		errors:        make(chan error),
+		dirs:          make(map[string]*watchStat, defaultMapSize),
+		files:         make(map[string]*watchStat, defaultMapSize),
+		matcher:       matcher,
 	}
 
 	go w.startTimerCheck(interval)
@@ -110,14 +115,16 @@ func (tfw *TimerFsWatcher) startTimerCheck(interval time.Duration) {
 		select {
 		case <-tfw.done:
 			return
-		case <-ticker.C:
-			tfw.checkFiles()
+		case now := <-ticker.C:
+			tfw.checkFiles(now)
 			tfw.checkDirs()
 		}
 	}
 }
 
-func (tfw *TimerFsWatcher) checkFiles() {
+func (tfw *TimerFsWatcher) checkFiles(now time.Time) {
+	silenceDeadline := now.Add(-tfw.silencePeriod)
+
 	for f, stat := range tfw.files {
 		info, err := os.Stat(f)
 		if err != nil {
@@ -143,6 +150,12 @@ func (tfw *TimerFsWatcher) checkFiles() {
 			continue
 		}
 
+		if info.ModTime().Before(silenceDeadline) {
+			tfw.removeFile(f, stat)
+
+			continue
+		}
+
 		if stat.watchWrite && info.ModTime().After(stat.modTime) {
 			stat.modTime = info.ModTime()
 			tfw.events <- fsnotify.Event{
@@ -155,6 +168,20 @@ func (tfw *TimerFsWatcher) checkFiles() {
 
 func (tfw *TimerFsWatcher) checkDirs() {
 	for dir, stat := range tfw.dirs {
+		dirInfo, err := os.Stat(dir)
+		if err != nil {
+			tfw.handleDirError(dir, stat, err)
+
+			continue
+		}
+
+		if !dirInfo.ModTime().After(stat.modTime) {
+			// not need to check files in directory if dir mod time not updated.
+			continue
+		}
+
+		stat.modTime = dirInfo.ModTime()
+
 		f, err := os.Open(dir)
 		if err != nil {
 			tfw.handleDirError(dir, stat, err)
@@ -189,7 +216,7 @@ func (tfw *TimerFsWatcher) checkDirs() {
 				continue
 			}
 
-			tfw.addFile(filePath, stat, info.ModTime())
+			tfw.addFile(filePath, stat)
 		}
 	}
 }
@@ -225,7 +252,7 @@ func (tfw *TimerFsWatcher) addDir(dir string, t *watchStat) {
 	}
 }
 
-func (tfw *TimerFsWatcher) addFile(path string, t *watchStat, modTime time.Time) {
+func (tfw *TimerFsWatcher) addFile(path string, t *watchStat) {
 	if _, ok := tfw.files[path]; ok {
 		return
 	}
@@ -235,11 +262,22 @@ func (tfw *TimerFsWatcher) addFile(path string, t *watchStat, modTime time.Time)
 		watchRename: t.watchRename,
 		watchRemove: t.watchRemove,
 		watchWrite:  t.watchWrite,
-		modTime:     modTime,
+		modTime:     time.Now(),
 	}
 
 	tfw.events <- fsnotify.Event{
 		Name: path,
 		Op:   fsnotify.Create,
+	}
+}
+
+func (tfw *TimerFsWatcher) removeFile(f string, stat *watchStat) {
+	delete(tfw.files, f)
+
+	if stat.watchRemove {
+		tfw.events <- fsnotify.Event{
+			Name: f,
+			Op:   fsnotify.Remove,
+		}
 	}
 }

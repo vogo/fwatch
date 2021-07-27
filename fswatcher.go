@@ -14,11 +14,11 @@ type FsWatcher interface {
 	Close() error
 }
 
-const half2 = 2
+const watchTimeFactor = 8
 
 func NewFsWatcher(method WatchMethod, deadline time.Duration, matcher FileMatcher) (FsWatcher, error) {
 	if method == WatchMethodTimer {
-		interval := deadline / half2
+		interval := deadline / watchTimeFactor
 
 		if interval > time.Minute {
 			interval = time.Minute
@@ -28,7 +28,9 @@ func NewFsWatcher(method WatchMethod, deadline time.Duration, matcher FileMatche
 			interval = time.Second
 		}
 
-		return NewTimerFsWatcher(interval, matcher)
+		silencePeriod := deadline * watchTimeFactor
+
+		return NewTimerFsWatcher(interval, silencePeriod, matcher)
 	}
 
 	return NewOsNotifyFsWatcher()
