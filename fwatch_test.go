@@ -11,12 +11,19 @@ import (
 	"github.com/vogo/logger"
 )
 
+const (
+	inactiveSeconds  = 5
+	inactiveDuration = time.Second * inactiveSeconds
+	silenceSeconds   = 10
+	silenceDuration  = time.Second * silenceSeconds
+)
+
 func TestFileWatcher(t *testing.T) {
 	t.Parallel()
 
 	doTestTypedFileWatcher(t, fwatch.WatchMethodTimer)
 
-	doTestTypedFileWatcher(t, fwatch.WatchMethodOS)
+	doTestTypedFileWatcher(t, fwatch.WatchMethodFS)
 }
 
 func doTestTypedFileWatcher(t *testing.T, method fwatch.WatchMethod) {
@@ -41,9 +48,7 @@ func doTestTypedFileWatcher(t *testing.T, method fwatch.WatchMethod) {
 	defer removeFile(linkDir)
 	defer removeFile(tempDir)
 
-	fileWatcher, err := fwatch.NewFileWatcher(tempDir, true, method, time.Second*5, func(s string) bool {
-		return true
-	})
+	fileWatcher, err := fwatch.NewFileWatcher(method, inactiveDuration, silenceDuration)
 	if err != nil {
 		t.Error(err)
 
@@ -53,31 +58,31 @@ func doTestTypedFileWatcher(t *testing.T, method fwatch.WatchMethod) {
 	go func() {
 		for {
 			select {
-			case <-fileWatcher.Done:
+			case <-fileWatcher.Stopper.C:
 				return
-			case f := <-fileWatcher.ActiveChan:
-				logger.Infof("--> active file: %s", f.Name)
-			case f := <-fileWatcher.InactiveChan:
-				logger.Infof("--> inactive file: %s", f.Name)
-			case name := <-fileWatcher.RemoveChan:
-				logger.Infof("--> remove file: %s", name)
+			case f := <-fileWatcher.Events:
+				logger.Infof("--> events : %s, %v", f.Name, f.Event)
 			}
 		}
 	}()
 
-	if err := fileWatcher.Start(); err != nil {
-		logger.Fatalf("create file watcher error: %v", err)
+	if err = fileWatcher.WatchDir(tempDir, true, func(s string) bool {
+		return true
+	}); err != nil {
+		t.Error(err)
+
+		return
 	}
 
-	time.Sleep(time.Second)
+	time.Sleep(inactiveSeconds)
 
 	startFileUpdater(tempDir, otherDir)
 
-	time.Sleep(time.Second)
+	time.Sleep(inactiveSeconds)
 
 	removeFile(tempDir)
 
-	time.Sleep(time.Second)
+	time.Sleep(inactiveSeconds)
 
 	_ = fileWatcher.Stop()
 }
@@ -90,25 +95,25 @@ func startFileUpdater(dir, otherDir string) {
 	f := filepath.Join(dir, "test.txt")
 	_ = ioutil.WriteFile(f, []byte("test"), filePerm)
 
-	sleep(1, "")
+	sleep(inactiveSeconds+2, "")
 
 	logger.Info("-------- 2. update test.txt")
 
 	_ = ioutil.WriteFile(f, []byte("update1"), filePerm)
 
-	sleep(10, "text.txt should be consider being inactive")
+	sleep(silenceSeconds+2, "test.txt should be consider being silence")
 
 	logger.Info("-------- 3. update test.txt again")
 
 	_ = ioutil.WriteFile(f, []byte("update2"), filePerm)
 
-	sleep(1, "")
+	sleep(inactiveSeconds+2, "")
 
-	logger.Info("--------  4. rename text.text to text-1.txt")
+	logger.Info("--------  4. rename test.txt to test-1.txt")
 
 	_ = os.Rename(f, filepath.Join(dir, "test-1.txt"))
 
-	sleep(1, "")
+	sleep(inactiveSeconds+2, "")
 
 	fromPath := filepath.Join(dir, "test-1.txt")
 	toPath := filepath.Join(otherDir, "test-1.txt")
@@ -120,26 +125,26 @@ func startFileUpdater(dir, otherDir string) {
 	subDir := filepath.Join(dir, "sub")
 	_ = os.Mkdir(subDir, os.ModePerm)
 
-	sleep(1, "")
+	sleep(inactiveSeconds+2, "")
 
 	logger.Info("--------  7. create sub.txt in sub dir")
 
 	subFile := filepath.Join(subDir, "sub.txt")
 	_ = ioutil.WriteFile(subFile, []byte("test"), filePerm)
 
-	sleep(1, "")
+	sleep(inactiveSeconds+2, "")
 
 	logger.Info("--------  8. update sub.txt in sub dir")
 
 	_ = ioutil.WriteFile(subFile, []byte("update 1"), filePerm)
 
-	sleep(10, "all files should be consider being inactive")
+	sleep(silenceSeconds+2, "all files should be consider being silence")
 
 	logger.Info("--------  9. update sub.txt again in sub dir after a long time")
 
 	_ = ioutil.WriteFile(subFile, []byte("update 2"), filePerm)
 
-	sleep(10, "sub.txt should be consider being inactive")
+	sleep(silenceSeconds+2, "sub.txt should be consider being silence")
 }
 
 func sleep(seconds int64, message string) {

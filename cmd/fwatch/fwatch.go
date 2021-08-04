@@ -11,6 +11,7 @@ import (
 
 const (
 	defaultInactiveSeconds = 60
+	defaultSilenceSeconds  = 60 * 8
 )
 
 func main() {
@@ -21,6 +22,7 @@ func main() {
 		includeSub      = flag.Bool("include_sub", false, "whether include sub-directories")
 		fileSuffix      = flag.String("suffix", "", "file suffix to watch")
 		inactiveSeconds = flag.Int64("inactive_seconds", defaultInactiveSeconds, "after seconds files is inactive")
+		silenceSeconds  = flag.Int64("silence_seconds", defaultSilenceSeconds, "after seconds files is silence")
 	)
 
 	flag.Parse()
@@ -35,10 +37,10 @@ func main() {
 
 	var watchMethod interface{} = *method
 
-	watcher, err := fwatch.NewFileWatcher(*dir, *includeSub, watchMethod.(fwatch.WatchMethod),
-		time.Duration(*inactiveSeconds)*time.Second, func(s string) bool {
-			return *fileSuffix == "" || strings.HasSuffix(s, *fileSuffix)
-		})
+	inactiveDuration := time.Duration(*inactiveSeconds) * time.Second
+	silenceDuration := time.Duration(*silenceSeconds) * time.Second
+
+	watcher, err := fwatch.NewFileWatcher(watchMethod.(fwatch.WatchMethod), inactiveDuration, silenceDuration)
 	if err != nil {
 		logger.Fatal(err)
 	}
@@ -50,20 +52,20 @@ func main() {
 	go func() {
 		for {
 			select {
-			case <-watcher.Done:
+			case <-watcher.Stopper.C:
 				return
-			case f := <-watcher.ActiveChan:
-				logger.Infof("--> active file: %s", f.Name)
-			case f := <-watcher.InactiveChan:
-				logger.Infof("--> inactive file: %s", f.Name)
-			case name := <-watcher.RemoveChan:
-				logger.Infof("--> remove file: %s", name)
+			case watchErr := <-watcher.Errors:
+				logger.Infof("--> error: %v", watchErr)
+			case f := <-watcher.Events:
+				logger.Infof("--> event: %v", f)
 			}
 		}
 	}()
 
-	if err = watcher.Start(); err != nil {
-		logger.Fatal(err)
+	if dirErr := watcher.WatchDir(*dir, *includeSub, func(s string) bool {
+		return *fileSuffix == "" || strings.HasSuffix(s, *fileSuffix)
+	}); dirErr != nil {
+		logger.Fatal(dirErr)
 	}
 
 	select {}

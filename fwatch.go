@@ -1,16 +1,13 @@
 package fwatch
 
 import (
-	"container/list"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
-	"github.com/vogo/fsnotify"
-	"github.com/vogo/logger"
+	"github.com/vogo/gstop"
 )
 
 const (
@@ -21,8 +18,8 @@ const (
 type WatchMethod string
 
 const (
-	// WatchMethodOS using os file system api to watch file events.
-	WatchMethodOS WatchMethod = "os"
+	// WatchMethodFS using os file system api to watch file events.
+	WatchMethodFS WatchMethod = "fs"
 
 	// WatchMethodTimer interval schedule check stat of files and trigger file change events.
 	WatchMethodTimer WatchMethod = "timer"
@@ -31,10 +28,53 @@ const (
 // FileMatcher whether a file name matches.
 type FileMatcher func(string) bool
 
-// WatchFile watch file info.
-type WatchFile struct {
-	Name string
-	Time time.Time
+// Event describes a set of file event.
+type Event uint32
+
+// These are file events that can trigger a notification.
+const (
+	Create Event = 1 << iota
+	Write
+	Remove
+	Inactive
+	Silence
+)
+
+// String event desc.
+func (e Event) String() string {
+	switch e {
+	case Create:
+		return "Create"
+	case Write:
+		return "Write"
+	case Remove:
+		return "Remove"
+	case Inactive:
+		return "Inactive"
+	case Silence:
+		return "Silence"
+	}
+
+	return ""
+}
+
+// WatchEvent file watch event.
+type WatchEvent struct {
+	Name  string
+	Event Event
+}
+
+// FileStat file stat.
+type FileStat struct {
+	modTime time.Time
+	active  bool
+}
+
+// DirStat dir stat.
+type DirStat struct {
+	modTime    time.Time
+	includeSub bool
+	matcher    FileMatcher
 }
 
 // FileWatcher a file watcher, watch change event in directory/sub-directories.
@@ -42,405 +82,160 @@ type WatchFile struct {
 type FileWatcher struct {
 	mu sync.Mutex
 
-	// root directory to watch
-	dir string
+	// Stopper to control watching goroutines.
+	Stopper *gstop.Stopper
 
-	// watch directories, used to avoid duplicated watching.
-	dirs map[string]struct{}
-
-	// whether to include sub-directories
-	includeSub bool
-
-	// watch method, os or timer.
+	// watch method, fs or timer.
 	method WatchMethod
 
-	// a file list to schedule checkFiles whether not being updated for a long time,
-	// if yes then stop active and add it to inactive file watch list.
-	activeFiles *list.List
+	// a duration if a file not being updated in, then it's inactive.
+	inactiveDuration time.Duration
 
-	// a file map to avoid duplicated file event.
-	activeFilesMap map[string]*WatchFile
+	// a duration if a file not being updated in, then it's silence and remove it from watch list.
+	silenceDuration time.Duration
 
-	// a duration if a file not being updated in, then move it to watch file list.
-	inactiveDeadline time.Duration
+	// watch directories.
+	dirs map[string]*DirStat
+
+	// temp add watch directories.
+	newDirs map[string]*DirStat
+
+	// a file map to watch.
+	files map[string]*FileStat
+
+	// temp add file map.
+	newFiles map[string]*FileStat
 
 	// a channel to notify active files.
-	ActiveChan chan *WatchFile
+	Events chan *WatchEvent
 
-	// a channel to notify inactive files.
-	InactiveChan chan *WatchFile
+	// a channel to notify errors.
+	Errors chan error
 
-	// a channel to notify removed files.
-	RemoveChan chan string
+	// func to call for a new dir.
+	newDirWatchInit func(dir string)
 
-	// fsnotify file watcher to watch inactive files being updated.
-	updateWatcher FsWatcher
-
-	// chan to control watching goroutines
-	Done chan struct{}
-
-	// the file matcher to checkFiles whether to watch a file.
-	fileMatcher FileMatcher
+	// func to check dir.
+	timerDirsChecker func(silenceDeadline time.Time)
 }
 
 var errFileMatcherNil = errors.New("fileMatcher nil")
 
 // NewFileWatcher create a new file watcher.
-func NewFileWatcher(dir string, includeSub bool, watchMethod WatchMethod,
-	inactiveDeadline time.Duration, fileMatcher func(string) bool) (*FileWatcher, error) {
-	if !IsDir(dir) {
-		return nil, fmt.Errorf("invalid dir %s", dir)
-	}
-
+func NewFileWatcher(watchMethod WatchMethod, inactiveDeadline, silenceDeadline time.Duration) (*FileWatcher, error) {
 	if inactiveDeadline < minimalInactiveDeadline {
-		return nil, fmt.Errorf("inactiveDeadline %s is less than the minimal %s", inactiveDeadline, minimalInactiveDeadline)
+		return nil, fmt.Errorf("inactiveDuration %s is less than the minimal %s", inactiveDeadline, minimalInactiveDeadline)
 	}
 
-	if fileMatcher == nil {
-		return nil, errFileMatcherNil
-	}
-
-	return &FileWatcher{
+	fw := &FileWatcher{
 		mu:               sync.Mutex{},
-		dir:              dir,
-		dirs:             make(map[string]struct{}, defaultMapSize),
-		includeSub:       includeSub,
+		Stopper:          gstop.New(),
 		method:           watchMethod,
-		inactiveDeadline: inactiveDeadline,
-		activeFilesMap:   make(map[string]*WatchFile),
-		activeFiles:      list.New(),
-		Done:             make(chan struct{}),
-		ActiveChan:       make(chan *WatchFile, defaultMapSize),
-		InactiveChan:     make(chan *WatchFile, defaultMapSize),
-		RemoveChan:       make(chan string, defaultMapSize),
-		fileMatcher:      fileMatcher,
-	}, nil
-}
-
-func (fw *FileWatcher) addActive(name string) {
-	fw.mu.Lock()
-	defer fw.mu.Unlock()
-
-	if _, ok := fw.activeFilesMap[name]; ok {
-		logger.Debugf("duplicated add active file: %s", name)
-
-		return
+		inactiveDuration: inactiveDeadline,
+		silenceDuration:  silenceDeadline,
+		dirs:             make(map[string]*DirStat, defaultMapSize),
+		files:            make(map[string]*FileStat, defaultMapSize),
+		newDirs:          make(map[string]*DirStat, defaultMapSize),
+		newFiles:         make(map[string]*FileStat, defaultMapSize),
+		Events:           make(chan *WatchEvent, defaultMapSize),
+		Errors:           make(chan error, defaultMapSize),
+		newDirWatchInit:  func(dir string) {},
+		timerDirsChecker: func(silenceDeadline time.Time) {},
 	}
 
-	f := &WatchFile{
-		Name: name,
-		Time: time.Now(),
+	if fw.method != WatchMethodFS {
+		fw.timerDirsChecker = fw.checkDirs
 	}
 
-	fw.activeFiles.PushBack(f)
-	fw.activeFilesMap[f.Name] = f
-
-	fw.ActiveChan <- f
-}
-
-func (fw *FileWatcher) addInactive(wf *WatchFile) {
-	fw.mu.Lock()
-	defer fw.mu.Unlock()
-
-	delete(fw.activeFilesMap, wf.Name)
-
-	logger.Debugf("add inactive file: %s", wf.Name)
-
-	if err := fw.updateWatcher.AddWatch(wf.Name, FileWriteRemoveEvents); err != nil {
-		logger.Warnf("watch file write event error: %s, %v", wf.Name, err)
+	if err := fw.Start(); err != nil {
+		return nil, err
 	}
 
-	fw.InactiveChan <- wf
+	return fw, nil
 }
 
-func (fw *FileWatcher) remove(name string) {
-	fw.mu.Lock()
-	defer fw.mu.Unlock()
+func (fw *FileWatcher) WatchDir(dir string, includeSub bool, fileMatcher FileMatcher) error {
+	if fileMatcher == nil {
+		return errFileMatcherNil
+	}
 
-	delete(fw.activeFilesMap, name)
-
-	fw.RemoveChan <- name
-}
-
-func (fw *FileWatcher) Start() error {
-	var err error
-	fw.updateWatcher, err = NewFsWatcher(fw.method, 0, fw.fileMatcher)
-
+	dirInfo, err := os.Stat(dir)
 	if err != nil {
 		return err
 	}
 
-	dirWatcher, err := NewFsWatcher(fw.method, fw.inactiveDeadline, fw.fileMatcher)
-	if err != nil {
-		return err
+	if !dirInfo.IsDir() {
+		return fmt.Errorf("invalid dir %s", dir)
 	}
 
-	go fw.watchInactiveFiles()
+	// lock to make sure the timer is not executing check.
+	fw.mu.Lock()
 
-	go fw.loopCheckActive()
+	stat := &DirStat{
+		modTime:    dirInfo.ModTime().Add(-time.Second),
+		includeSub: includeSub,
+		matcher:    fileMatcher,
+	}
+	fw.dirs[dir] = stat
+	fw.checkDir(dir, stat, time.Now().Add(-fw.silenceDuration))
 
-	go fw.watchDir(dirWatcher)
+	fw.mu.Unlock()
 
-	return fw.watchDirRecursively(dirWatcher, fw.dir)
+	fw.newDirWatchInit(dir)
+
+	return nil
 }
 
 func (fw *FileWatcher) Stop() error {
-	close(fw.Done)
+	fw.Stopper.Stop()
 
 	return nil
 }
 
-func (fw *FileWatcher) watchInactiveFiles() {
-	defer func() {
-		logger.Warn("stop inactive files watch")
-
-		_ = fw.updateWatcher.Close()
-	}()
-
-	for {
-		select {
-		case <-fw.Done:
-			return
-		case event, ok := <-fw.updateWatcher.Events():
-			if !ok {
-				logger.Warn("failed to watch inactive files")
-
-				return
-			}
-
-			logger.Debugf("inactive file event: %v", event)
-
-			if event.Op&fsnotify.Remove == fsnotify.Remove {
-				fw.remove(event.Name)
-				_ = fw.updateWatcher.Remove(event.Name)
-
-				continue
-			}
-
-			if event.Op&fsnotify.Write == fsnotify.Write {
-				_ = fw.updateWatcher.Remove(event.Name)
-
-				fw.addActive(event.Name)
-			}
-		case err, ok := <-fw.updateWatcher.Errors():
-			if !ok {
-				logger.Warnf("failed to get error event for inactive files")
-
-				return
-			}
-
-			logger.Errorf("error: %v", err)
-		}
+func (fw *FileWatcher) tryAddNewSubDir(dir string, stat *DirStat, silenceDeadline time.Time) {
+	if !stat.includeSub {
+		return
 	}
-}
 
-// fsnotifyWatchDir file system watch directory, return true if success.
-func (fw *FileWatcher) fsnotifyWatchDir(fsnotifyWatcher FsWatcher, dir string) bool {
-	fw.mu.Lock()
-	defer fw.mu.Unlock()
-
-	// ignore duplicated directory
 	if _, ok := fw.dirs[dir]; ok {
-		return false
+		return
 	}
 
-	err := fsnotifyWatcher.AddWatch(dir, FileCreateRemoveEvents)
-	if err != nil {
-		logger.Errorf("fs watch directory error: %v", err)
-
-		return false
+	fw.newDirs[dir] = &DirStat{
+		modTime:    time.Now(),
+		includeSub: stat.includeSub,
+		matcher:    stat.matcher,
 	}
 
-	fw.dirs[dir] = struct{}{}
-
-	return true
+	// check files and directories in new dir first.
+	fw.checkDir(dir, stat, silenceDeadline)
 }
 
-func (fw *FileWatcher) watchDirRecursively(fsnotifyWatcher FsWatcher, dir string) error {
-	if !fw.fsnotifyWatchDir(fsnotifyWatcher, dir) {
-		return nil
-	}
-
-	logger.Infof("start watch directory: %s", dir)
-
-	f, err := os.Open(dir)
-	if err != nil {
-		logger.Warnf("open directory error: %v", err)
-
-		return err
-	}
-
-	fileInfos, err := f.Readdir(-1)
-	_ = f.Close()
-
-	if err != nil {
-		logger.Warnf("read directory error: %v", err)
-
-		return err
-	}
-
-	for _, info := range fileInfos {
-		fw.watchSubFile(fsnotifyWatcher, dir, info)
-	}
-
-	return nil
-}
-
-func (fw *FileWatcher) watchSubFile(fsnotifyWatcher FsWatcher, dir string, info os.FileInfo) {
-	filePath, isDirPath, pathErr := unlink(filepath.Join(dir, info.Name()), info)
-	if pathErr != nil {
-		logger.Debugf("read file error：%v", pathErr)
-
+func (fw *FileWatcher) tryAddNewFile(path string, _ *DirStat) {
+	if _, ok := fw.files[path]; ok {
 		return
 	}
 
-	if isDirPath {
-		if fw.includeSub {
-			go func() {
-				_ = fw.watchDirRecursively(fsnotifyWatcher, filePath)
-			}()
-		}
-
-		return
+	fw.newFiles[path] = &FileStat{
+		active:  true,
+		modTime: time.Now(),
 	}
 
-	if !fw.fileMatcher(filePath) {
-		return
-	}
-
-	if time.Since(info.ModTime()) < fw.inactiveDeadline {
-		fw.addActive(filePath)
-	} else {
-		fw.addInactive(&WatchFile{
-			Name: filePath,
-			Time: info.ModTime(),
-		})
+	fw.Events <- &WatchEvent{
+		Name:  path,
+		Event: Create,
 	}
 }
 
-func (fw *FileWatcher) watchDir(dirWatcher FsWatcher) {
-	defer func() {
-		logger.Warnf("stop watch directory")
-
-		_ = dirWatcher.Close()
-	}()
-
-	for {
-		select {
-		case <-fw.Done:
-			return
-		case event, ok := <-dirWatcher.Events():
-			if !ok {
-				logger.Warnf("failed to listen watch event")
-
-				return
-			}
-
-			fw.handleDirEvent(dirWatcher, event)
-		case err, ok := <-dirWatcher.Errors():
-			if !ok {
-				logger.Warnf("failed to listen error event")
-
-				return
-			}
-
-			logger.Errorf("watch dir error: %v", err)
-		}
-	}
-}
-
-func (fw *FileWatcher) handleDirEvent(dirWatcher FsWatcher, event fsnotify.Event) {
-	logger.Debugf("dir event: %v", event)
-
-	// ignore root dir events
-	if event.Name == "" || event.Name == "." {
+func (fw *FileWatcher) tryRemoveFile(path string, _ *DirStat) {
+	if _, ok := fw.files[path]; ok {
 		return
 	}
 
-	if !fw.fileMatcher(event.Name) {
-		return
-	}
+	delete(fw.files, path)
 
-	if opMatch(event.Op, fsnotify.Create) {
-		if IsDir(event.Name) {
-			_ = fw.watchDirRecursively(dirWatcher, event.Name)
-
-			return
-		}
-
-		fw.addActive(event.Name)
-
-		return
-	}
-
-	if opMatch(event.Op, fsnotify.Remove, fsnotify.Rename) {
-		if IsDir(event.Name) {
-			_ = dirWatcher.Remove(event.Name)
-		} else {
-			fw.remove(event.Name)
-		}
-
-		return
-	}
-
-	if opMatch(event.Op, fsnotify.Write) {
-		fw.addActive(event.Name)
-	}
-}
-
-const maxActiveCheckInterval = time.Minute * 5
-
-// loopCheckActive checkFiles all active files, checkFiles whether it's already inactive.
-func (fw *FileWatcher) loopCheckActive() {
-	checkInterval := fw.inactiveDeadline
-	if checkInterval > maxActiveCheckInterval {
-		checkInterval = maxActiveCheckInterval
-	}
-
-	ticker := time.NewTicker(checkInterval)
-
-	for {
-		select {
-		case <-fw.Done:
-			return
-		case <-ticker.C:
-			for e := fw.activeFiles.Front(); e != nil; {
-				watchFile, _ := e.Value.(*WatchFile)
-
-				if time.Since(watchFile.Time) < fw.inactiveDeadline {
-					e = e.Next()
-
-					continue
-				}
-
-				stat, err := os.Stat(watchFile.Name)
-				if err != nil {
-					if !os.IsNotExist(err) {
-						logger.Warnf("check active file stat error: %v", err)
-					}
-
-					next := e.Next()
-					fw.activeFiles.Remove(e)
-					e = next
-
-					fw.remove(watchFile.Name)
-
-					continue
-				}
-
-				watchFile.Time = stat.ModTime()
-				if time.Since(watchFile.Time) < fw.inactiveDeadline {
-					e = e.Next()
-
-					continue
-				}
-
-				next := e.Next()
-				fw.activeFiles.Remove(e)
-				e = next
-
-				fw.addInactive(watchFile)
-			}
-		}
+	fw.Events <- &WatchEvent{
+		Name:  path,
+		Event: Remove,
 	}
 }

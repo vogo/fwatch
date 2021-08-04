@@ -3,8 +3,6 @@ package fwatch
 import (
 	"os"
 	"path/filepath"
-
-	"github.com/vogo/fsnotify"
 )
 
 func IsDir(name string) bool {
@@ -35,14 +33,4 @@ func unlink(path string, info os.FileInfo) (unlinkPath string, dir bool, fileErr
 	}
 
 	return path, info.IsDir(), nil
-}
-
-func opMatch(op fsnotify.Op, target ...fsnotify.Op) bool {
-	for _, t := range target {
-		if op&t != t {
-			return false
-		}
-	}
-
-	return true
 }
