@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/vogo/gstop"
+	"github.com/vogo/logger"
 )
 
 const (
@@ -207,7 +208,7 @@ func (fw *FileWatcher) Stop() error {
 	return nil
 }
 
-func (fw *FileWatcher) tryAddNewSubDir(dir string, stat *DirStat, silenceDeadline time.Time) {
+func (fw *FileWatcher) tryAddNewSubDir(info os.FileInfo, dir string, stat *DirStat, silenceDeadline time.Time) {
 	if !stat.includeSub {
 		return
 	}
@@ -216,8 +217,10 @@ func (fw *FileWatcher) tryAddNewSubDir(dir string, stat *DirStat, silenceDeadlin
 		return
 	}
 
+	logger.Infof("add new dir: %s", dir)
+
 	fw.newDirs[dir] = &DirStat{
-		modTime:    time.Now(),
+		modTime:    info.ModTime(),
 		includeSub: stat.includeSub,
 		matcher:    stat.matcher,
 	}

@@ -46,6 +46,8 @@ func (fw *FileWatcher) checkDir(dir string, stat *DirStat, silenceDeadline time.
 
 	stat.modTime = dirInfo.ModTime()
 
+	logger.Debugf("start check dir: %s", dir)
+
 	f, err := os.Open(dir)
 	if err != nil {
 		fw.handleDirError(dir, stat, err)
@@ -71,7 +73,7 @@ func (fw *FileWatcher) checkDir(dir string, stat *DirStat, silenceDeadline time.
 		}
 
 		if isDirPath {
-			fw.tryAddNewSubDir(filePath, stat, silenceDeadline)
+			fw.tryAddNewSubDir(info, filePath, stat, silenceDeadline)
 
 			continue
 		}

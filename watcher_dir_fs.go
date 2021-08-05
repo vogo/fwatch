@@ -18,6 +18,7 @@
 package fwatch
 
 import (
+	"os"
 	"path/filepath"
 	"time"
 
@@ -90,20 +91,29 @@ func (fw *FileWatcher) fsHandleDirEvent(dirWatcher *fsnotify.Watcher, event fsno
 		return
 	}
 
-	if IsDir(event.Name) {
-		fw.fsHandleDirsEvent(dirWatcher, event, stat)
+	if event.Op != fsnotify.Remove && event.Op != fsnotify.Rename {
+		fileInfo, err := os.Stat(event.Name)
+		if err != nil {
+			logger.Warnf("stat error: %v, file: %s", err, event.Name)
 
-		return
+			return
+		}
+
+		if fileInfo.IsDir() {
+			fw.fsHandleDirsEvent(dirWatcher, event, stat, fileInfo)
+
+			return
+		}
 	}
 
 	fw.fsHandleFilesEvent(event, stat)
 }
 
-func (fw *FileWatcher) fsHandleDirsEvent(dirWatcher *fsnotify.Watcher, event fsnotify.Event, stat *DirStat) {
+func (fw *FileWatcher) fsHandleDirsEvent(dirWatcher *fsnotify.Watcher, event fsnotify.Event, stat *DirStat, info os.FileInfo) {
 	switch event.Op {
 	case fsnotify.Create:
 		silenceDeadline := time.Now().Add(-fw.silenceDuration)
-		fw.tryAddNewSubDir(event.Name, stat, silenceDeadline)
+		fw.tryAddNewSubDir(info, event.Name, stat, silenceDeadline)
 	case fsnotify.Remove, fsnotify.Rename:
 		_ = dirWatcher.Remove(event.Name)
 
