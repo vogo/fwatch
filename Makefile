@@ -5,7 +5,10 @@ format:
 		go fmt
 		gofumpt -w .
 
-check:
+license-check:
+	license-header-checker -v -a -r apache-license.txt . go
+
+check: license-check
 		golangci-lint run
 
 test:
