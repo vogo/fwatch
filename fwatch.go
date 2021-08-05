@@ -219,14 +219,16 @@ func (fw *FileWatcher) tryAddNewSubDir(info os.FileInfo, dir string, stat *DirSt
 
 	logger.Infof("add new dir: %s", dir)
 
-	fw.newDirs[dir] = &DirStat{
-		modTime:    info.ModTime(),
+	newDirStat := &DirStat{
+		modTime:    info.ModTime().Add(-time.Second),
 		includeSub: stat.includeSub,
 		matcher:    stat.matcher,
 	}
 
+	fw.newDirs[dir] = newDirStat
+
 	// check files and directories in new dir first.
-	fw.checkDir(dir, stat, silenceDeadline)
+	fw.checkDir(dir, newDirStat, silenceDeadline)
 }
 
 func (fw *FileWatcher) tryAddNewFile(path string, _ *DirStat) {
