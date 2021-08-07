@@ -165,7 +165,7 @@ func New(watchMethod WatchMethod, inactiveDeadline, silenceDeadline time.Duratio
 		fw.timerDirsChecker = fw.checkDirs
 	}
 
-	if err := fw.Start(); err != nil {
+	if err := fw.start(); err != nil {
 		return nil, err
 	}
 
@@ -190,13 +190,13 @@ func (fw *FileWatcher) WatchDir(dir string, includeSub bool, fileMatcher FileMat
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
 
-	stat := &DirStat{
+	dirStat := &DirStat{
 		modTime:    dirInfo.ModTime().Add(-time.Second),
 		includeSub: includeSub,
 		matcher:    fileMatcher,
 	}
-	fw.dirs[dir] = stat
-	fw.checkDir(dir, stat, time.Now().Add(-fw.silenceDuration))
+	fw.dirs[dir] = dirStat
+	fw.checkDirInfo(dir, dirInfo, dirStat, time.Now().Add(-fw.silenceDuration))
 	fw.newDirWatchInit(dir)
 
 	return nil
@@ -208,8 +208,8 @@ func (fw *FileWatcher) Stop() error {
 	return nil
 }
 
-func (fw *FileWatcher) tryAddNewSubDir(info os.FileInfo, dir string, stat *DirStat, silenceDeadline time.Time) {
-	if !stat.includeSub {
+func (fw *FileWatcher) tryAddNewSubDir(info os.FileInfo, dir string, parentDirStat *DirStat, silenceDeadline time.Time) {
+	if !parentDirStat.includeSub {
 		return
 	}
 
@@ -217,28 +217,38 @@ func (fw *FileWatcher) tryAddNewSubDir(info os.FileInfo, dir string, stat *DirSt
 		return
 	}
 
+	if _, ok := fw.newDirs[dir]; ok {
+		return
+	}
+
 	logger.Infof("add new dir: %s", dir)
 
 	newDirStat := &DirStat{
 		modTime:    info.ModTime().Add(-time.Second),
-		includeSub: stat.includeSub,
-		matcher:    stat.matcher,
+		includeSub: parentDirStat.includeSub,
+		matcher:    parentDirStat.matcher,
 	}
 
 	fw.newDirs[dir] = newDirStat
 
 	// check files and directories in new dir first.
-	fw.checkDir(dir, newDirStat, silenceDeadline)
+	fw.checkDirInfo(dir, info, newDirStat, silenceDeadline)
 }
 
-func (fw *FileWatcher) tryAddNewFile(path string, _ *DirStat) {
+func (fw *FileWatcher) tryAddNewFile(path string, fileInfo os.FileInfo, silenceDeadline time.Time) {
 	if _, ok := fw.files[path]; ok {
 		return
 	}
 
+	if !fileInfo.ModTime().After(silenceDeadline) {
+		return
+	}
+
+	logger.Tracef("add new file: %s", path)
+
 	fw.newFiles[path] = &FileStat{
 		active:  true,
-		modTime: time.Now(),
+		modTime: fileInfo.ModTime(),
 	}
 
 	fw.Events <- &WatchEvent{

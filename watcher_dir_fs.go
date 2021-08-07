@@ -122,16 +122,24 @@ func (fw *FileWatcher) fsHandleDirsEvent(dirWatcher *fsnotify.Watcher, event fsn
 	}
 }
 
-func (fw *FileWatcher) fsHandleFilesEvent(event fsnotify.Event, stat *DirStat) {
-	if !stat.matcher(event.Name) {
+func (fw *FileWatcher) fsHandleFilesEvent(event fsnotify.Event, dirStat *DirStat) {
+	if !dirStat.matcher(event.Name) {
 		return
 	}
 
 	switch event.Op {
 	case fsnotify.Create, fsnotify.Write:
-		fw.tryAddNewFile(event.Name, stat)
+		fileInfo, err := os.Stat(event.Name)
+		if err != nil {
+			fw.Errors <- err
+
+			return
+		}
+
+		silenceDeadline := time.Now().Add(-fw.silenceDuration)
+		fw.tryAddNewFile(event.Name, fileInfo, silenceDeadline)
 	case fsnotify.Remove, fsnotify.Rename:
-		fw.tryRemoveFile(event.Name, stat)
+		fw.tryRemoveFile(event.Name, dirStat)
 	case fsnotify.Chmod:
 	}
 }

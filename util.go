@@ -28,9 +28,9 @@ func IsDir(name string) bool {
 	return err == nil && stat != nil && stat.IsDir()
 }
 
-func unlink(path string, info os.FileInfo) (unlinkPath string, dir bool, fileErr error) {
+func unlink(path string, info os.FileInfo) (unlinkPath string, dir bool, fileInfo os.FileInfo, fileErr error) {
 	if info.IsDir() {
-		return path, true, nil
+		return path, true, info, nil
 	}
 
 	var err error
@@ -39,15 +39,15 @@ func unlink(path string, info os.FileInfo) (unlinkPath string, dir bool, fileErr
 		path, err = filepath.EvalSymlinks(path)
 
 		if err != nil {
-			return "", false, err
+			return "", false, nil, err
 		}
 
 		info, err = os.Lstat(path)
 
 		if err != nil {
-			return "", false, err
+			return "", false, nil, err
 		}
 	}
 
-	return path, info.IsDir(), nil
+	return path, info.IsDir(), info, nil
 }

@@ -31,26 +31,33 @@ func (fw *FileWatcher) checkDirs(silenceDeadline time.Time) {
 	}
 }
 
-func (fw *FileWatcher) checkDir(dir string, stat *DirStat, silenceDeadline time.Time) {
+func (fw *FileWatcher) checkDir(dir string, dirStat *DirStat, silenceDeadline time.Time) {
 	dirInfo, err := os.Stat(dir)
 	if err != nil {
-		fw.handleDirError(dir, stat, err)
+		fw.handleDirError(dir, dirStat, err)
 
 		return
 	}
 
-	if !dirInfo.ModTime().After(stat.modTime) {
-		// not need to check files in directory if dir mod time not updated.
+	fw.checkDirInfo(dir, dirInfo, dirStat, silenceDeadline)
+}
+
+func (fw *FileWatcher) checkDirInfo(dir string, dirInfo os.FileInfo, dirStat *DirStat, silenceDeadline time.Time) {
+	// dir mod time is updated only when creating or removing sub files.
+	// not need to check files in directory if dir mod time not updated.
+	if !dirInfo.ModTime().After(dirStat.modTime) {
+		logger.Tracef("ignore not updated dir: %s", dirInfo.Name())
+
 		return
 	}
 
-	stat.modTime = dirInfo.ModTime()
+	dirStat.modTime = dirInfo.ModTime()
 
 	logger.Debugf("start check dir: %s", dir)
 
 	f, err := os.Open(dir)
 	if err != nil {
-		fw.handleDirError(dir, stat, err)
+		fw.handleDirError(dir, dirStat, err)
 
 		return
 	}
@@ -59,13 +66,19 @@ func (fw *FileWatcher) checkDir(dir string, stat *DirStat, silenceDeadline time.
 	_ = f.Close()
 
 	if err != nil {
-		fw.handleDirError(dir, stat, err)
+		fw.handleDirError(dir, dirStat, err)
 
 		return
 	}
 
-	for _, info := range fileInfos {
-		filePath, isDirPath, pathErr := unlink(filepath.Join(dir, info.Name()), info)
+	var (
+		filePath  string
+		isDirPath bool
+		pathErr   error
+	)
+
+	for _, fileInfo := range fileInfos {
+		filePath, isDirPath, fileInfo, pathErr = unlink(filepath.Join(dir, fileInfo.Name()), fileInfo)
 		if pathErr != nil {
 			logger.Debugf("read file error：%v", pathErr)
 
@@ -73,16 +86,16 @@ func (fw *FileWatcher) checkDir(dir string, stat *DirStat, silenceDeadline time.
 		}
 
 		if isDirPath {
-			fw.tryAddNewSubDir(info, filePath, stat, silenceDeadline)
+			fw.tryAddNewSubDir(fileInfo, filePath, dirStat, silenceDeadline)
 
 			continue
 		}
 
-		if !stat.matcher(info.Name()) || !info.ModTime().After(silenceDeadline) {
+		if !dirStat.matcher(fileInfo.Name()) || !fileInfo.ModTime().After(silenceDeadline) {
 			continue
 		}
 
-		fw.tryAddNewFile(filePath, stat)
+		fw.tryAddNewFile(filePath, fileInfo, silenceDeadline)
 	}
 }
 

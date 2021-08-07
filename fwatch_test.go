@@ -33,10 +33,14 @@ const (
 	inactiveDuration = time.Second * inactiveSeconds
 	silenceSeconds   = 10
 	silenceDuration  = time.Second * silenceSeconds
+
+	filePerm = 0o600
 )
 
 func TestFileWatcher(t *testing.T) {
 	t.Parallel()
+
+	logger.SetLevel(logger.LevelDebug)
 
 	doTestTypedFileWatcher(t, fwatch.WatchMethodTimer)
 
@@ -91,20 +95,18 @@ func doTestTypedFileWatcher(t *testing.T, method fwatch.WatchMethod) {
 		return
 	}
 
-	time.Sleep(inactiveSeconds)
+	time.Sleep(inactiveDuration)
 
 	startFileUpdater(tempDir, otherDir)
 
-	time.Sleep(inactiveSeconds)
+	time.Sleep(inactiveDuration)
 
 	removeFile(tempDir)
 
-	time.Sleep(inactiveSeconds)
+	time.Sleep(inactiveDuration)
 
 	_ = fileWatcher.Stop()
 }
-
-const filePerm = 0o600
 
 func startFileUpdater(dir, otherDir string) {
 	logger.Info("-------- 1. create test.txt")

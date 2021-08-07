@@ -41,7 +41,8 @@ func calcInterval(deadline time.Duration) time.Duration {
 	return interval
 }
 
-func (fw *FileWatcher) Start() error {
+// start file watcher.
+func (fw *FileWatcher) start() error {
 	ticker := time.NewTicker(calcInterval(fw.inactiveDuration))
 
 	if fw.method == WatchMethodFS {
