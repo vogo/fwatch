@@ -79,7 +79,7 @@ func doTestTypedFileWatcher(t *testing.T, method fwatch.WatchMethod) {
 	go func() {
 		for {
 			select {
-			case <-fileWatcher.Stopper.C:
+			case <-fileWatcher.Runner.C:
 				return
 			case f := <-fileWatcher.Events:
 				logger.Infof("--> events : %s, %v", f.Name, f.Event)

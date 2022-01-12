@@ -52,7 +52,7 @@ func (fw *FileWatcher) fsWatchDir(dirWatcher *fsnotify.Watcher) {
 
 	for {
 		select {
-		case <-fw.Stopper.C:
+		case <-fw.Runner.C:
 			return
 		case event, ok := <-dirWatcher.Events:
 			if !ok {

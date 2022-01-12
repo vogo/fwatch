@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vogo/gstop"
+	"github.com/vogo/grunner"
 	"github.com/vogo/logger"
 )
 
@@ -100,8 +100,8 @@ type DirStat struct {
 type FileWatcher struct {
 	mu sync.Mutex
 
-	// Stopper to control watching goroutines.
-	Stopper *gstop.Stopper
+	// Runner to control watching goroutines.
+	Runner *grunner.Runner
 
 	// watch method, fs or timer.
 	method WatchMethod
@@ -147,7 +147,7 @@ func New(watchMethod WatchMethod, inactiveDeadline, silenceDeadline time.Duratio
 
 	fw := &FileWatcher{
 		mu:               sync.Mutex{},
-		Stopper:          gstop.New(),
+		Runner:          grunner.New(),
 		method:           watchMethod,
 		inactiveDuration: inactiveDeadline,
 		silenceDuration:  silenceDeadline,
@@ -203,7 +203,7 @@ func (fw *FileWatcher) WatchDir(dir string, includeSub bool, fileMatcher FileMat
 }
 
 func (fw *FileWatcher) Stop() error {
-	fw.Stopper.Stop()
+	fw.Runner.Stop()
 
 	return nil
 }

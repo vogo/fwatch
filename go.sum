@@ -8,8 +8,8 @@ github.com/stretchr/testify v1.7.0 h1:nwc3DEeHmmLAfoZucVR881uASk0Mfjw8xYJ99tb5Cc
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/vogo/fsnotify v1.4.10-0.20210606062753-a470c8d404e0 h1:shwCWdzShrGvCk9bhicXFMPCPbxE+EqzJtMKd3Lbrn4=
 github.com/vogo/fsnotify v1.4.10-0.20210606062753-a470c8d404e0/go.mod h1:eNmmuMP+7CDRMeHrX0U8GN3rAY4Ar7GprPWoW0iuBYI=
-github.com/vogo/gstop v1.0.0 h1:xxDvmVEMjEiGZA7ILmmi38uTJ/jvI0FAD/AdjghbDQo=
-github.com/vogo/gstop v1.0.0/go.mod h1:xw3MTGyblZVO5nS85+tjW/rMceoH/cxc3QtV72LAv14=
+github.com/vogo/grunner v1.0.0 h1:VJx+rm8e9/0ZBZrYHLAgTdHbrDL7/apRlXvrXqFYsz8=
+github.com/vogo/grunner v1.0.0/go.mod h1:fZbecKTuoe2trpvS1F0lhpOYvlr017bDBbC67CF2Gtg=
 github.com/vogo/logger v1.3.0 h1:dofEemPRR1eGcVsUPmFWQnQ72EiH9EXzLFZU8EN/EVQ=
 github.com/vogo/logger v1.3.0/go.mod h1:JNvSUGbxH+Et7KQrPr8Zmg9BWb4piD0yEooLiUVz+y8=
 golang.org/x/sys v0.0.0-20210603125802-9665404d3644 h1:CA1DEQ4NdKphKeL70tvsWNdT5oFh1lOjihRcEDROi0I=

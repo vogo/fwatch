@@ -55,7 +55,7 @@ func (fw *FileWatcher) start() error {
 	go func() {
 		for {
 			select {
-			case <-fw.Stopper.C:
+			case <-fw.Runner.C:
 				return
 			case now := <-ticker.C:
 				fw.timerCheck(now)

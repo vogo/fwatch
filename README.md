@@ -39,7 +39,7 @@ if err != nil {
 go func() {
 	for {
 		select {
-		case <-fileWatcher.Stopper.C:
+		case <-fileWatcher.Runner.C:
 			return
 		case f := <-fileWatcher.Events:
 			fmt.Printf("--> events : %s, %v", f.Name, f.Event)

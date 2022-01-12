@@ -69,7 +69,7 @@ func main() {
 	go func() {
 		for {
 			select {
-			case <-watcher.Stopper.C:
+			case <-watcher.Runner.C:
 				return
 			case watchErr := <-watcher.Errors:
 				logger.Infof("--> error: %v", watchErr)
