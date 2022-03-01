@@ -27,18 +27,18 @@ import (
 )
 
 func (fw *FileWatcher) startFsDirWatcher() error {
-	w, err := fsnotify.NewWatcher()
+	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
 	}
 
 	fw.newDirWatchInit = func(dir string) {
-		if dirErr := w.AddWatch(dir, FileCreateRemoveEvents); dirErr != nil {
+		if dirErr := watcher.AddWatch(dir, FileCreateRemoveEvents); dirErr != nil {
 			logger.Errorf("fs watch dir error: %v, dir: %s", dirErr, dir)
 		}
 	}
 
-	go fw.fsWatchDir(w)
+	go fw.fsWatchDir(watcher)
 
 	return nil
 }

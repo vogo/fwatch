@@ -18,12 +18,18 @@
 package fwatch
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/vogo/logger"
 )
+
+const MaxDirFileCount = 128
+
+var ErrTooManyDirFile = errors.New("too many files under directory")
 
 func (fw *FileWatcher) checkDirs(silenceDeadline time.Time) {
 	for dir, stat := range fw.dirs {
@@ -55,16 +61,7 @@ func (fw *FileWatcher) checkDirInfo(dir string, dirInfo os.FileInfo, dirStat *Di
 
 	logger.Debugf("start check dir: %s", dir)
 
-	f, err := os.Open(dir)
-	if err != nil {
-		fw.handleDirError(dir, dirStat, err)
-
-		return
-	}
-
-	fileInfos, err := f.Readdir(-1)
-	_ = f.Close()
-
+	fileInfos, err := openCheckDir(dir)
 	if err != nil {
 		fw.handleDirError(dir, dirStat, err)
 
@@ -77,6 +74,8 @@ func (fw *FileWatcher) checkDirInfo(dir string, dirInfo os.FileInfo, dirStat *Di
 		pathErr   error
 	)
 
+	subDirMap := make(map[string]os.FileInfo)
+
 	for _, fileInfo := range fileInfos {
 		filePath, isDirPath, fileInfo, pathErr = unlink(filepath.Join(dir, fileInfo.Name()), fileInfo)
 		if pathErr != nil {
@@ -86,7 +85,7 @@ func (fw *FileWatcher) checkDirInfo(dir string, dirInfo os.FileInfo, dirStat *Di
 		}
 
 		if isDirPath {
-			fw.tryAddNewSubDir(fileInfo, filePath, dirStat, silenceDeadline)
+			subDirMap[filePath] = fileInfo
 
 			continue
 		}
@@ -97,6 +96,31 @@ func (fw *FileWatcher) checkDirInfo(dir string, dirInfo os.FileInfo, dirStat *Di
 
 		fw.tryAddNewFile(filePath, fileInfo, silenceDeadline)
 	}
+
+	// check sub dir
+	for path, fileInfo := range subDirMap {
+		fw.tryAddNewSubDir(fileInfo, path, dirStat, silenceDeadline)
+	}
+}
+
+func openCheckDir(dir string) ([]os.FileInfo, error) {
+	file, err := os.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	fileInfos, err := file.Readdir(-1)
+	_ = file.Close()
+
+	if err != nil {
+		return nil, err
+	}
+
+	if len(fileInfos) > MaxDirFileCount {
+		return nil, fmt.Errorf("%w. dir: %s, file count: %d", ErrTooManyDirFile, dir, len(fileInfos))
+	}
+
+	return fileInfos, nil
 }
 
 func (fw *FileWatcher) handleDirError(dir string, _ *DirStat, err error) {

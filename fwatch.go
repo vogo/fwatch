@@ -145,9 +145,9 @@ func New(watchMethod WatchMethod, inactiveDeadline, silenceDeadline time.Duratio
 		return nil, fmt.Errorf("inactiveDuration %s is less than the minimal %s", inactiveDeadline, minimalInactiveDeadline)
 	}
 
-	fw := &FileWatcher{
+	fileWatcher := &FileWatcher{
 		mu:               sync.Mutex{},
-		Runner:          grunner.New(),
+		Runner:           grunner.New(),
 		method:           watchMethod,
 		inactiveDuration: inactiveDeadline,
 		silenceDuration:  silenceDeadline,
@@ -161,15 +161,15 @@ func New(watchMethod WatchMethod, inactiveDeadline, silenceDeadline time.Duratio
 		timerDirsChecker: func(silenceDeadline time.Time) {},
 	}
 
-	if fw.method != WatchMethodFS {
-		fw.timerDirsChecker = fw.checkDirs
+	if fileWatcher.method != WatchMethodFS {
+		fileWatcher.timerDirsChecker = fileWatcher.checkDirs
 	}
 
-	if err := fw.start(); err != nil {
+	if err := fileWatcher.start(); err != nil {
 		return nil, err
 	}
 
-	return fw, nil
+	return fileWatcher, nil
 }
 
 func (fw *FileWatcher) WatchDir(dir string, includeSub bool, fileMatcher FileMatcher) error {

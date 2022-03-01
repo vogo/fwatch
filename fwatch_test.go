@@ -18,7 +18,6 @@
 package fwatch_test
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -57,9 +56,9 @@ func doTestTypedFileWatcher(t *testing.T, method fwatch.WatchMethod) {
 	_ = os.Mkdir(linkDir, os.ModePerm)
 	_ = os.Mkdir(tempDir, os.ModePerm)
 
-	_ = ioutil.WriteFile(filepath.Join(otherDir, "test1.txt"), []byte("test"), filePerm)
-	_ = ioutil.WriteFile(filepath.Join(otherDir, "test2.txt"), []byte("test"), filePerm)
-	_ = ioutil.WriteFile(filepath.Join(linkDir, "test-link-file.txt"), []byte("test"), filePerm)
+	_ = os.WriteFile(filepath.Join(otherDir, "test1.txt"), []byte("test"), filePerm)
+	_ = os.WriteFile(filepath.Join(otherDir, "test2.txt"), []byte("test"), filePerm)
+	_ = os.WriteFile(filepath.Join(linkDir, "test-link-file.txt"), []byte("test"), filePerm)
 
 	_ = os.Link(filepath.Join(otherDir, "test1.txt"), filepath.Join(tempDir, "link-test1.txt"))
 	_ = os.Symlink(filepath.Join(otherDir, "test2.txt"), filepath.Join(tempDir, "link-test2.txt"))
@@ -111,26 +110,26 @@ func doTestTypedFileWatcher(t *testing.T, method fwatch.WatchMethod) {
 func startFileUpdater(dir, otherDir string) {
 	logger.Info("-------- 1. create test.txt")
 
-	f := filepath.Join(dir, "test.txt")
-	_ = ioutil.WriteFile(f, []byte("test"), filePerm)
+	filePath := filepath.Join(dir, "test.txt")
+	_ = os.WriteFile(filePath, []byte("test"), filePerm)
 
 	sleep(inactiveSeconds+2, "")
 
 	logger.Info("-------- 2. update test.txt")
 
-	_ = ioutil.WriteFile(f, []byte("update1"), filePerm)
+	_ = os.WriteFile(filePath, []byte("update1"), filePerm)
 
 	sleep(silenceSeconds+2, "test.txt should be consider being silence")
 
 	logger.Info("-------- 3. update test.txt again")
 
-	_ = ioutil.WriteFile(f, []byte("update2"), filePerm)
+	_ = os.WriteFile(filePath, []byte("update2"), filePerm)
 
 	sleep(inactiveSeconds+2, "")
 
 	logger.Info("--------  4. rename test.txt to test-1.txt")
 
-	_ = os.Rename(f, filepath.Join(dir, "test-1.txt"))
+	_ = os.Rename(filePath, filepath.Join(dir, "test-1.txt"))
 
 	sleep(inactiveSeconds+2, "")
 
@@ -149,19 +148,19 @@ func startFileUpdater(dir, otherDir string) {
 	logger.Info("--------  7. create sub.txt in sub dir")
 
 	subFile := filepath.Join(subDir, "sub.txt")
-	_ = ioutil.WriteFile(subFile, []byte("test"), filePerm)
+	_ = os.WriteFile(subFile, []byte("test"), filePerm)
 
 	sleep(inactiveSeconds+2, "")
 
 	logger.Info("--------  8. update sub.txt in sub dir")
 
-	_ = ioutil.WriteFile(subFile, []byte("update 1"), filePerm)
+	_ = os.WriteFile(subFile, []byte("update 1"), filePerm)
 
 	sleep(silenceSeconds+2, "all files should be consider being silence")
 
 	logger.Info("--------  9. update sub.txt again in sub dir after a long time")
 
-	_ = ioutil.WriteFile(subFile, []byte("update 2"), filePerm)
+	_ = os.WriteFile(subFile, []byte("update 2"), filePerm)
 
 	sleep(silenceSeconds+2, "sub.txt should be consider being silence")
 }
