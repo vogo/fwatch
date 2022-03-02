@@ -241,6 +241,9 @@ func (fw *FileWatcher) tryAddNewFile(path string, fileInfo os.FileInfo, silenceD
 	}
 
 	if !fileInfo.ModTime().After(silenceDeadline) {
+		logger.Tracef("ignore file(%s) for modTime(%v) reach the silence deadline(%v)",
+			fileInfo.Name(), fileInfo.ModTime(), silenceDeadline)
+
 		return
 	}
 

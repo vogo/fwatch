@@ -90,7 +90,9 @@ func (fw *FileWatcher) checkDirInfo(dir string, dirInfo os.FileInfo, dirStat *Di
 			continue
 		}
 
-		if !dirStat.matcher(fileInfo.Name()) || !fileInfo.ModTime().After(silenceDeadline) {
+		if !dirStat.matcher(fileInfo.Name()) {
+			logger.Tracef("ignore file for not match: %s", fileInfo.Name())
+
 			continue
 		}
 
@@ -124,6 +126,8 @@ func openCheckDir(dir string) ([]os.FileInfo, error) {
 }
 
 func (fw *FileWatcher) handleDirError(dir string, _ *DirStat, err error) {
+	logger.Debugf("ignore dir %s for %v", dir, err)
+
 	delete(fw.dirs, dir)
 
 	if os.IsNotExist(err) {
