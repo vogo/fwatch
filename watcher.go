@@ -19,6 +19,8 @@ package fwatch
 
 import (
 	"time"
+
+	"github.com/vogo/logger"
 )
 
 const (
@@ -94,4 +96,16 @@ func (fw *FileWatcher) timerCheck(now time.Time) {
 
 		delete(fw.newFiles, f)
 	}
+}
+
+// SetDirFileCountLimit allow user to config directory file count limit.
+func (fw *FileWatcher) SetDirFileCountLimit(count int) {
+	if count < 32 || count > 1024 {
+		logger.Warnf("[fwatch] unsupported dirFileCountLimit value: %d", count)
+
+		return
+	}
+
+	logger.Infof("[fwatch] set dirFileCountLimit=%d", count)
+	fw.dirFileCountLimit = count
 }

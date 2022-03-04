@@ -27,8 +27,6 @@ import (
 	"github.com/vogo/logger"
 )
 
-const MaxDirFileCount = 128
-
 var ErrTooManyDirFile = errors.New("too many files under directory")
 
 func (fw *FileWatcher) checkDirs(silenceDeadline time.Time) {
@@ -60,8 +58,9 @@ func (fw *FileWatcher) checkDirInfo(dir string, dirInfo os.FileInfo, dirStat *Di
 	dirStat.modTime = dirInfo.ModTime()
 
 	logger.Debugf("start check dir: %s", dir)
+	defer logger.Debugf("end check dir: %s", dir)
 
-	fileInfos, err := openCheckDir(dir)
+	fileInfos, err := openCheckDir(dir, fw.dirFileCountLimit)
 	if err != nil {
 		fw.handleDirError(dir, dirStat, err)
 
@@ -105,7 +104,7 @@ func (fw *FileWatcher) checkDirInfo(dir string, dirInfo os.FileInfo, dirStat *Di
 	}
 }
 
-func openCheckDir(dir string) ([]os.FileInfo, error) {
+func openCheckDir(dir string, dirFileCountLimit int) ([]os.FileInfo, error) {
 	file, err := os.Open(dir)
 	if err != nil {
 		return nil, err
@@ -118,7 +117,7 @@ func openCheckDir(dir string) ([]os.FileInfo, error) {
 		return nil, err
 	}
 
-	if len(fileInfos) > MaxDirFileCount {
+	if len(fileInfos) > dirFileCountLimit {
 		return nil, fmt.Errorf("%w. dir: %s, file count: %d", ErrTooManyDirFile, dir, len(fileInfos))
 	}
 

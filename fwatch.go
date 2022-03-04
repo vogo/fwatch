@@ -29,8 +29,9 @@ import (
 )
 
 const (
-	defaultMapSize          = 32
-	minimalInactiveDeadline = 5 * time.Second
+	defaultMapSize           = 32
+	minimalInactiveDeadline  = 5 * time.Second
+	defaultDirFileCountLimit = 128
 )
 
 type WatchMethod string
@@ -135,6 +136,9 @@ type FileWatcher struct {
 
 	// func to check dir.
 	timerDirsChecker func(silenceDeadline time.Time)
+
+	//  not watch file changes for a directory if the count of files under it is over the max.
+	dirFileCountLimit int
 }
 
 var errFileMatcherNil = errors.New("fileMatcher nil")
@@ -146,19 +150,20 @@ func New(watchMethod WatchMethod, inactiveDeadline, silenceDeadline time.Duratio
 	}
 
 	fileWatcher := &FileWatcher{
-		mu:               sync.Mutex{},
-		Runner:           grunner.New(),
-		method:           watchMethod,
-		inactiveDuration: inactiveDeadline,
-		silenceDuration:  silenceDeadline,
-		dirs:             make(map[string]*DirStat, defaultMapSize),
-		files:            make(map[string]*FileStat, defaultMapSize),
-		newDirs:          make(map[string]*DirStat, defaultMapSize),
-		newFiles:         make(map[string]*FileStat, defaultMapSize),
-		Events:           make(chan *WatchEvent, defaultMapSize),
-		Errors:           make(chan error, defaultMapSize),
-		newDirWatchInit:  func(dir string) {},
-		timerDirsChecker: func(silenceDeadline time.Time) {},
+		mu:                sync.Mutex{},
+		Runner:            grunner.New(),
+		method:            watchMethod,
+		inactiveDuration:  inactiveDeadline,
+		silenceDuration:   silenceDeadline,
+		dirs:              make(map[string]*DirStat, defaultMapSize),
+		files:             make(map[string]*FileStat, defaultMapSize),
+		newDirs:           make(map[string]*DirStat, defaultMapSize),
+		newFiles:          make(map[string]*FileStat, defaultMapSize),
+		Events:            make(chan *WatchEvent, defaultMapSize),
+		Errors:            make(chan error, defaultMapSize),
+		newDirWatchInit:   func(dir string) {},
+		timerDirsChecker:  func(silenceDeadline time.Time) {},
+		dirFileCountLimit: defaultDirFileCountLimit,
 	}
 
 	if fileWatcher.method != WatchMethodFS {
