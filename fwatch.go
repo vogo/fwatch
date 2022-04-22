@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vogo/grunner"
+	"github.com/vogo/gorun"
 	"github.com/vogo/logger"
 )
 
@@ -102,7 +102,7 @@ type FileWatcher struct {
 	mu sync.Mutex
 
 	// Runner to control watching goroutines.
-	Runner *grunner.Runner
+	Runner *gorun.Runner
 
 	// watch method, fs or timer.
 	method WatchMethod
@@ -151,7 +151,7 @@ func New(watchMethod WatchMethod, inactiveDeadline, silenceDeadline time.Duratio
 
 	fileWatcher := &FileWatcher{
 		mu:                sync.Mutex{},
-		Runner:            grunner.New(),
+		Runner:            gorun.New(),
 		method:            watchMethod,
 		inactiveDuration:  inactiveDeadline,
 		silenceDuration:   silenceDeadline,
