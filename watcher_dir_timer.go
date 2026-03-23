@@ -60,25 +60,28 @@ func (fw *FileWatcher) checkDirInfo(dir string, dirInfo os.FileInfo, dirStat *Di
 	vlog.Debugf("start check dir: %s", dir)
 	defer vlog.Debugf("end check dir: %s", dir)
 
-	fileInfos, err := openCheckDir(dir, fw.dirFileCountLimit)
+	entries, err := readCheckDir(dir, fw.dirFileCountLimit)
 	if err != nil {
 		fw.handleDirError(dir, dirStat, err)
 
 		return
 	}
 
-	var (
-		filePath  string
-		isDirPath bool
-		pathErr   error
-	)
-
 	subDirMap := make(map[string]os.FileInfo)
 
-	for _, fileInfo := range fileInfos {
-		filePath, isDirPath, fileInfo, pathErr = unlink(filepath.Join(dir, fileInfo.Name()), fileInfo)
+	for _, entry := range entries {
+		filePath := filepath.Join(dir, entry.Name())
+
+		fileInfo, infoErr := entry.Info()
+		if infoErr != nil {
+			vlog.Debugf("read file info error: %v", infoErr)
+
+			continue
+		}
+
+		filePath, isDirPath, fileInfo, pathErr := unlink(filePath, fileInfo)
 		if pathErr != nil {
-			vlog.Debugf("read file error：%v", pathErr)
+			vlog.Debugf("read file error: %v", pathErr)
 
 			continue
 		}
@@ -104,24 +107,17 @@ func (fw *FileWatcher) checkDirInfo(dir string, dirInfo os.FileInfo, dirStat *Di
 	}
 }
 
-func openCheckDir(dir string, dirFileCountLimit int) ([]os.FileInfo, error) {
-	file, err := os.Open(dir)
+func readCheckDir(dir string, dirFileCountLimit int) ([]os.DirEntry, error) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
 
-	fileInfos, err := file.Readdir(-1)
-	_ = file.Close()
-
-	if err != nil {
-		return nil, err
+	if len(entries) > dirFileCountLimit {
+		return nil, fmt.Errorf("%w. dir: %s, file count: %d", ErrTooManyDirFile, dir, len(entries))
 	}
 
-	if len(fileInfos) > dirFileCountLimit {
-		return nil, fmt.Errorf("%w. dir: %s, file count: %d", ErrTooManyDirFile, dir, len(fileInfos))
-	}
-
-	return fileInfos, nil
+	return entries, nil
 }
 
 func (fw *FileWatcher) handleDirError(dir string, _ *DirStat, err error) {
@@ -133,5 +129,5 @@ func (fw *FileWatcher) handleDirError(dir string, _ *DirStat, err error) {
 		return
 	}
 
-	fw.Errors <- err
+	fw.sendError(err)
 }

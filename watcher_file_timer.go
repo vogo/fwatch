@@ -34,15 +34,15 @@ func (fw *FileWatcher) checkFile(filePath string, stat *FileStat, inactiveDeadli
 		delete(fw.files, filePath)
 
 		if os.IsNotExist(err) {
-			fw.Events <- &WatchEvent{
+			fw.sendEvent(&WatchEvent{
 				Name:  filePath,
 				Event: Remove,
-			}
+			})
 
 			return
 		}
 
-		fw.Errors <- err
+		fw.sendError(err)
 
 		return
 	}
@@ -54,18 +54,18 @@ func (fw *FileWatcher) checkFile(filePath string, stat *FileStat, inactiveDeadli
 	if stat.active {
 		if info.ModTime().Before(inactiveDeadline) {
 			stat.active = false
-			fw.Events <- &WatchEvent{
+			fw.sendEvent(&WatchEvent{
 				Name:  filePath,
 				Event: Inactive,
-			}
+			})
 		}
 	} else {
 		if info.ModTime().After(stat.modTime) {
 			stat.active = true
-			fw.Events <- &WatchEvent{
+			fw.sendEvent(&WatchEvent{
 				Name:  filePath,
 				Event: Write,
-			}
+			})
 		} else if info.ModTime().Before(silenceDeadline) {
 			fw.removeFile(filePath, stat)
 
@@ -79,8 +79,8 @@ func (fw *FileWatcher) checkFile(filePath string, stat *FileStat, inactiveDeadli
 func (fw *FileWatcher) removeFile(f string, _ *FileStat) {
 	delete(fw.files, f)
 
-	fw.Events <- &WatchEvent{
+	fw.sendEvent(&WatchEvent{
 		Name:  f,
 		Event: Remove,
-	}
+	})
 }

@@ -34,7 +34,7 @@ const (
 func main() {
 	var (
 		dir             = flag.String("dir", "", "directory to watch")
-		method          = flag.String("method", "", "watch method, os/timer")
+		method          = flag.String("method", "timer", "watch method, fs/timer")
 		logLevel        = flag.String("log_level", "", "log level(debug/info)")
 		includeSub      = flag.Bool("include_sub", false, "whether include sub-directories")
 		fileSuffix      = flag.String("suffix", "", "file suffix to watch")
@@ -52,12 +52,14 @@ func main() {
 		vlog.SetLevel(vlog.LevelDebug)
 	}
 
-	var watchMethod any = *method
-
 	inactiveDuration := time.Duration(*inactiveSeconds) * time.Second
 	silenceDuration := time.Duration(*silenceSeconds) * time.Second
 
-	watcher, err := fwatch.New(watchMethod.(fwatch.WatchMethod), inactiveDuration, silenceDuration)
+	watcher, err := fwatch.New(
+		fwatch.WithMethod(fwatch.WatchMethod(*method)),
+		fwatch.WithInactiveDuration(inactiveDuration),
+		fwatch.WithSilenceDuration(silenceDuration),
+	)
 	if err != nil {
 		vlog.Fatal(err)
 	}
@@ -69,7 +71,7 @@ func main() {
 	go func() {
 		for {
 			select {
-			case <-watcher.Runner.C:
+			case <-watcher.Done():
 				return
 			case watchErr := <-watcher.Errors:
 				vlog.Infof("--> error: %v", watchErr)

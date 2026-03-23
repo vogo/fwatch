@@ -78,7 +78,11 @@ func doTestTypedFileWatcher(t *testing.T, method fwatch.WatchMethod) {
 	// --- create watcher ---
 	t.Logf("[watcher] creating FileWatcher (method=%s)", method)
 
-	fileWatcher, err := fwatch.New(method, inactiveDuration, silenceDuration)
+	fileWatcher, err := fwatch.New(
+		fwatch.WithMethod(method),
+		fwatch.WithInactiveDuration(inactiveDuration),
+		fwatch.WithSilenceDuration(silenceDuration),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +92,7 @@ func doTestTypedFileWatcher(t *testing.T, method fwatch.WatchMethod) {
 	go func() {
 		for {
 			select {
-			case <-fileWatcher.Runner.C:
+			case <-fileWatcher.Done():
 				return
 			case ev := <-fileWatcher.Events:
 				t.Logf("[event] %s | %v", ev.Name, ev.Event)
@@ -189,4 +193,129 @@ func sleep(t *testing.T, seconds int64, reason string) {
 
 	t.Logf("         sleep %ds (%s)", seconds, reason)
 	time.Sleep(time.Second * time.Duration(seconds))
+}
+
+func TestNewOptionValidation(t *testing.T) {
+	t.Parallel()
+
+	// invalid inactive duration
+	_, err := fwatch.New(
+		fwatch.WithInactiveDuration(time.Millisecond),
+	)
+	if err == nil {
+		t.Fatal("expected error for too small inactive duration")
+	}
+
+	t.Logf("expected error: %v", err)
+
+	// invalid dir file count limit
+	_, err = fwatch.New(
+		fwatch.WithInactiveDuration(2*time.Second),
+		fwatch.WithDirFileCountLimit(10),
+	)
+	if err == nil {
+		t.Fatal("expected error for invalid dir file count limit")
+	}
+
+	t.Logf("expected error: %v", err)
+
+	// valid options
+	w, err := fwatch.New(
+		fwatch.WithMethod(fwatch.WatchMethodFS),
+		fwatch.WithInactiveDuration(2*time.Second),
+		fwatch.WithSilenceDuration(5*time.Second),
+		fwatch.WithDirFileCountLimit(64),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = w.Stop()
+}
+
+func TestStatsAndUnwatchDir(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+
+	_ = os.WriteFile(filepath.Join(tempDir, "a.txt"), []byte("aaa"), filePerm)
+	_ = os.WriteFile(filepath.Join(tempDir, "b.txt"), []byte("bbb"), filePerm)
+
+	w, err := fwatch.New(
+		fwatch.WithMethod(fwatch.WatchMethodTimer),
+		fwatch.WithInactiveDuration(2*time.Second),
+		fwatch.WithSilenceDuration(10*time.Second),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Stop()
+
+	// drain events
+	go func() {
+		for {
+			select {
+			case <-w.Done():
+				return
+			case <-w.Events:
+			case <-w.Errors:
+			}
+		}
+	}()
+
+	if err = w.WatchDir(tempDir, false, func(s string) bool { return true }); err != nil {
+		t.Fatal(err)
+	}
+
+	// wait for initial scan
+	time.Sleep(2 * time.Second)
+
+	stats := w.Stats()
+	t.Logf("[stats] dirs=%d, files=%d, active=%d", stats.Dirs, stats.Files, stats.ActiveFiles)
+
+	if stats.Dirs < 1 {
+		t.Errorf("expected at least 1 dir, got %d", stats.Dirs)
+	}
+
+	if stats.Files < 2 {
+		t.Errorf("expected at least 2 files, got %d", stats.Files)
+	}
+
+	// unwatch
+	w.UnwatchDir(tempDir)
+
+	stats = w.Stats()
+	t.Logf("[stats after unwatch] dirs=%d, files=%d", stats.Dirs, stats.Files)
+
+	if stats.Dirs != 0 {
+		t.Errorf("expected 0 dirs after unwatch, got %d", stats.Dirs)
+	}
+}
+
+func TestDoneChannel(t *testing.T) {
+	t.Parallel()
+
+	w, err := fwatch.New(
+		fwatch.WithInactiveDuration(2 * time.Second),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	done := w.Done()
+
+	select {
+	case <-done:
+		t.Fatal("Done() should not be closed before Stop()")
+	default:
+	}
+
+	_ = w.Stop()
+
+	select {
+	case <-done:
+		// expected
+	case <-time.After(time.Second):
+		t.Fatal("Done() should be closed after Stop()")
+	}
 }

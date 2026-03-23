@@ -13,6 +13,7 @@ and automatically marks files as **inactive** or **silence** based on configurab
 - File lifecycle events: `Create`, `Write`, `Remove`, `Inactive`, `Silence`
 - Symlink and hard link support
 - Configurable directory file count limit
+- Dynamic `UnwatchDir` and runtime `Stats`
 
 ## Install
 
@@ -34,11 +35,13 @@ import (
 )
 
 func main() {
-	// Create a watcher.
-	//   method: "fs" (fsnotify) or "timer" (polling)
-	//   inactiveDuration: file considered inactive after this duration without updates
-	//   silenceDuration:  file removed from watch list after this duration without updates
-	watcher, err := fwatch.New(fwatch.WatchMethodFS, 30*time.Second, 5*time.Minute)
+	// Create a watcher with functional options.
+	watcher, err := fwatch.New(
+		fwatch.WithMethod(fwatch.WatchMethodFS),       // or WatchMethodTimer (default)
+		fwatch.WithInactiveDuration(30*time.Second),   // file considered inactive after 30s
+		fwatch.WithSilenceDuration(5*time.Minute),     // file removed from watch after 5m
+		fwatch.WithDirFileCountLimit(256),             // skip dirs with >256 files
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -48,7 +51,7 @@ func main() {
 	go func() {
 		for {
 			select {
-			case <-watcher.Runner.C:
+			case <-watcher.Done():
 				return
 			case ev := <-watcher.Events:
 				fmt.Printf("event: %s %v\n", ev.Name, ev.Event)
@@ -66,10 +69,25 @@ func main() {
 		panic(err)
 	}
 
-	// Block forever (or use your own shutdown mechanism).
+	// Query runtime stats.
+	stats := watcher.Stats()
+	fmt.Printf("watching %d dirs, %d files (%d active)\n", stats.Dirs, stats.Files, stats.ActiveFiles)
+
+	// Dynamically stop watching a directory.
+	watcher.UnwatchDir("/var/log/app")
+
 	select {}
 }
 ```
+
+## Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `WithMethod(m)` | Watch method: `WatchMethodFS` or `WatchMethodTimer` | `WatchMethodTimer` |
+| `WithInactiveDuration(d)` | Duration after which an unchanged file is marked inactive | `1s` |
+| `WithSilenceDuration(d)` | Duration after which an unchanged file is removed from watch | `2s` |
+| `WithDirFileCountLimit(n)` | Max files per directory (32-1024), skip dirs exceeding this | `128` |
 
 ## Watch Methods
 

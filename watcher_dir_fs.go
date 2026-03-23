@@ -32,6 +32,8 @@ func (fw *FileWatcher) startFsDirWatcher() error {
 		return err
 	}
 
+	fw.closeFn = watcher.Close
+
 	fw.newDirWatchInit = func(dir string) {
 		if dirErr := watcher.Add(dir); dirErr != nil {
 			vlog.Errorf("fs watch dir error: %v, dir: %s", dirErr, dir)
@@ -44,15 +46,10 @@ func (fw *FileWatcher) startFsDirWatcher() error {
 }
 
 func (fw *FileWatcher) fsWatchDir(dirWatcher *fsnotify.Watcher) {
-	defer func() {
-		vlog.Warnf("stop watch directory")
-
-		_ = dirWatcher.Close()
-	}()
 
 	for {
 		select {
-		case <-fw.Runner.C:
+		case <-fw.runner.C:
 			return
 		case event, ok := <-dirWatcher.Events:
 			if !ok {
@@ -82,6 +79,23 @@ func (fw *FileWatcher) fsHandleDirEvent(dirWatcher *fsnotify.Watcher, event fsno
 		return
 	}
 
+	// stat file outside the lock (I/O should not hold the mutex)
+	var fileInfo os.FileInfo
+
+	if event.Op != fsnotify.Remove && event.Op != fsnotify.Rename {
+		var err error
+
+		fileInfo, err = os.Stat(event.Name)
+		if err != nil {
+			vlog.Warnf("stat error: %v, file: %s", err, event.Name)
+
+			return
+		}
+	}
+
+	fw.mu.Lock()
+	defer fw.mu.Unlock()
+
 	baseDir := filepath.Dir(event.Name)
 	stat, ok := fw.dirs[baseDir]
 
@@ -91,19 +105,10 @@ func (fw *FileWatcher) fsHandleDirEvent(dirWatcher *fsnotify.Watcher, event fsno
 		return
 	}
 
-	if event.Op != fsnotify.Remove && event.Op != fsnotify.Rename {
-		fileInfo, err := os.Stat(event.Name)
-		if err != nil {
-			vlog.Warnf("stat error: %v, file: %s", err, event.Name)
+	if fileInfo != nil && fileInfo.IsDir() {
+		fw.fsHandleDirsEvent(dirWatcher, event, stat, fileInfo)
 
-			return
-		}
-
-		if fileInfo.IsDir() {
-			fw.fsHandleDirsEvent(dirWatcher, event, stat, fileInfo)
-
-			return
-		}
+		return
 	}
 
 	fw.fsHandleFilesEvent(event, stat)
@@ -131,7 +136,7 @@ func (fw *FileWatcher) fsHandleFilesEvent(event fsnotify.Event, dirStat *DirStat
 	case fsnotify.Create, fsnotify.Write:
 		fileInfo, err := os.Stat(event.Name)
 		if err != nil {
-			fw.Errors <- err
+			fw.sendError(err)
 
 			return
 		}

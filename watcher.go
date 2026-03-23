@@ -17,11 +17,7 @@
 
 package fwatch
 
-import (
-	"time"
-
-	"github.com/vogo/vogo/vlog"
-)
+import "time"
 
 const (
 	watchTimeFactor           = 3
@@ -53,7 +49,7 @@ func (fw *FileWatcher) start() error {
 	go func() {
 		for {
 			select {
-			case <-fw.Runner.C:
+			case <-fw.runner.C:
 				return
 			case now := <-ticker.C:
 				fw.timerCheck(now)
@@ -94,14 +90,3 @@ func (fw *FileWatcher) timerCheck(now time.Time) {
 	}
 }
 
-// SetDirFileCountLimit allow user to config directory file count limit.
-func (fw *FileWatcher) SetDirFileCountLimit(count int) {
-	if count < 32 || count > 1024 {
-		vlog.Warnf("[fwatch] unsupported dirFileCountLimit value: %d", count)
-
-		return
-	}
-
-	vlog.Infof("[fwatch] set dirFileCountLimit=%d", count)
-	fw.dirFileCountLimit = count
-}

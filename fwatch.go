@@ -101,8 +101,8 @@ type DirStat struct {
 type FileWatcher struct {
 	mu sync.Mutex
 
-	// Runner to control watching goroutines.
-	Runner *vrun.Runner
+	// runner to control watching goroutines.
+	runner *vrun.Runner
 
 	// watch method, fs or timer.
 	method WatchMethod
@@ -137,24 +137,73 @@ type FileWatcher struct {
 	// func to check dir.
 	timerDirsChecker func(silenceDeadline time.Time)
 
-	//  not watch file changes for a directory if the count of files under it is over the max.
+	// not watch file changes for a directory if the count of files under it is over the max.
 	dirFileCountLimit int
+
+	// closeFn is called on Stop to release resources (e.g. close fsnotify watcher).
+	closeFn func() error
 }
 
-var errFileMatcherNil = errors.New("fileMatcher nil")
+var (
+	errFileMatcherNil = errors.New("fileMatcher nil")
 
-// New create a new file watcher.
-func New(watchMethod WatchMethod, inactiveDeadline, silenceDeadline time.Duration) (*FileWatcher, error) {
-	if inactiveDeadline < minimalInactiveDeadline {
-		return nil, fmt.Errorf("inactiveDuration %s is less than the minimal %s", inactiveDeadline, minimalInactiveDeadline)
+	// ErrInvalidDirFileCountLimit is returned when the dir file count limit is out of range.
+	ErrInvalidDirFileCountLimit = errors.New("dirFileCountLimit must be between 32 and 1024")
+)
+
+// Option configures a FileWatcher.
+type Option func(*FileWatcher) error
+
+// WithMethod sets the watch method (fs or timer). Default is timer.
+func WithMethod(method WatchMethod) Option {
+	return func(fw *FileWatcher) error {
+		fw.method = method
+		return nil
 	}
+}
 
+// WithInactiveDuration sets the inactive duration threshold.
+func WithInactiveDuration(d time.Duration) Option {
+	return func(fw *FileWatcher) error {
+		if d < minimalInactiveDeadline {
+			return fmt.Errorf("inactiveDuration %s is less than the minimal %s", d, minimalInactiveDeadline)
+		}
+
+		fw.inactiveDuration = d
+
+		return nil
+	}
+}
+
+// WithSilenceDuration sets the silence duration threshold.
+func WithSilenceDuration(d time.Duration) Option {
+	return func(fw *FileWatcher) error {
+		fw.silenceDuration = d
+		return nil
+	}
+}
+
+// WithDirFileCountLimit sets the max file count per directory.
+func WithDirFileCountLimit(count int) Option {
+	return func(fw *FileWatcher) error {
+		if count < 32 || count > 1024 {
+			return fmt.Errorf("%w: %d", ErrInvalidDirFileCountLimit, count)
+		}
+
+		fw.dirFileCountLimit = count
+
+		return nil
+	}
+}
+
+// New creates a new file watcher with the given options.
+func New(opts ...Option) (*FileWatcher, error) {
 	fileWatcher := &FileWatcher{
 		mu:                sync.Mutex{},
-		Runner:            vrun.New(),
-		method:            watchMethod,
-		inactiveDuration:  inactiveDeadline,
-		silenceDuration:   silenceDeadline,
+		runner:            vrun.New(),
+		method:            WatchMethodTimer,
+		inactiveDuration:  minimalInactiveDeadline,
+		silenceDuration:   minimalInactiveDeadline * 2,
 		dirs:              make(map[string]*DirStat, defaultMapSize),
 		files:             make(map[string]*FileStat, defaultMapSize),
 		newDirs:           make(map[string]*DirStat, defaultMapSize),
@@ -164,6 +213,12 @@ func New(watchMethod WatchMethod, inactiveDeadline, silenceDeadline time.Duratio
 		newDirWatchInit:   func(dir string) {},
 		timerDirsChecker:  func(silenceDeadline time.Time) {},
 		dirFileCountLimit: defaultDirFileCountLimit,
+	}
+
+	for _, opt := range opts {
+		if err := opt(fileWatcher); err != nil {
+			return nil, err
+		}
 	}
 
 	if fileWatcher.method != WatchMethodFS {
@@ -207,10 +262,71 @@ func (fw *FileWatcher) WatchDir(dir string, includeSub bool, fileMatcher FileMat
 	return nil
 }
 
+// UnwatchDir stops watching a directory.
+func (fw *FileWatcher) UnwatchDir(dir string) {
+	fw.mu.Lock()
+	defer fw.mu.Unlock()
+
+	delete(fw.dirs, dir)
+	delete(fw.newDirs, dir)
+}
+
+// WatchStats holds the current watcher statistics.
+type WatchStats struct {
+	Dirs        int
+	Files       int
+	ActiveFiles int
+}
+
+// Stats returns the current watcher statistics.
+func (fw *FileWatcher) Stats() WatchStats {
+	fw.mu.Lock()
+	defer fw.mu.Unlock()
+
+	active := 0
+	for _, stat := range fw.files {
+		if stat.active {
+			active++
+		}
+	}
+
+	return WatchStats{
+		Dirs:        len(fw.dirs) + len(fw.newDirs),
+		Files:       len(fw.files) + len(fw.newFiles),
+		ActiveFiles: active,
+	}
+}
+
+// Done returns a channel that is closed when the watcher is stopped.
+func (fw *FileWatcher) Done() <-chan struct{} {
+	return fw.runner.C
+}
+
+// Stop stops the watcher and releases all resources.
 func (fw *FileWatcher) Stop() error {
-	fw.Runner.Stop()
+	fw.runner.Stop()
+
+	if fw.closeFn != nil {
+		return fw.closeFn()
+	}
 
 	return nil
+}
+
+// sendEvent sends a watch event without blocking. Drops the event if the watcher is stopped.
+func (fw *FileWatcher) sendEvent(event *WatchEvent) {
+	select {
+	case fw.Events <- event:
+	case <-fw.runner.C:
+	}
+}
+
+// sendError sends an error without blocking. Drops the error if the watcher is stopped.
+func (fw *FileWatcher) sendError(err error) {
+	select {
+	case fw.Errors <- err:
+	case <-fw.runner.C:
+	}
 }
 
 func (fw *FileWatcher) tryAddNewSubDir(info os.FileInfo, dir string, parentDirStat *DirStat, silenceDeadline time.Time) {
@@ -259,21 +375,21 @@ func (fw *FileWatcher) tryAddNewFile(path string, fileInfo os.FileInfo, silenceD
 		modTime: fileInfo.ModTime(),
 	}
 
-	fw.Events <- &WatchEvent{
+	fw.sendEvent(&WatchEvent{
 		Name:  path,
 		Event: Create,
-	}
+	})
 }
 
 func (fw *FileWatcher) tryRemoveFile(path string, _ *DirStat) {
-	if _, ok := fw.files[path]; ok {
+	if _, ok := fw.files[path]; !ok {
 		return
 	}
 
 	delete(fw.files, path)
 
-	fw.Events <- &WatchEvent{
+	fw.sendEvent(&WatchEvent{
 		Name:  path,
 		Event: Remove,
-	}
+	})
 }
