@@ -20,7 +20,7 @@ name: CI
 
 on:
   push:
-    branches: [master, develop]
+    branches: [master, main, develop]
   pull_request:
     branches: "*"
 
