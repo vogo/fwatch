@@ -1,59 +1,119 @@
-# the design of file watch
+# fwatch
 
-## Background
+A Go library for watching file changes in directories with lifecycle management.
 
-I'd like to automatically operate all these files with a given suffix in a directory and all sub-directories.
-These files not being updated for a long time should be excluded, 
-but need to be included if them being updated in a later time.
+fwatch tracks files by suffix in a directory tree, sends events on creation and modification,
+and automatically marks files as **inactive** or **silence** based on configurable time thresholds.
 
 ## Features
-- recursively list all file with given suffix in directory/sub-directories.
-- send event when file created in directory/sub-directories.
-- send event when file being inactive/silence.
 
-## Design
+- Recursive directory and sub-directory watching
+- File filtering by custom matcher (e.g. suffix-based)
+- Two watch methods: OS-level `fs` (fsnotify) or polling `timer`
+- File lifecycle events: `Create`, `Write`, `Remove`, `Inactive`, `Silence`
+- Symlink and hard link support
+- Configurable directory file count limit
 
-![](doc/fwatch.svg)
-- **directories**: directory/sub-directories being watched.
-- **files**: all active/inactive files, not include deleted or silence files.
-- **file event channel**: channel for file events, include create, write, remove, inactive, and silence.
-- **error channel**: channel for watch error.
-- **FsDirWatcher**: a watcher to watch file create/remove events using [fsnotify](https://github.com/vogo/fsnotify).
-- **TimerDirWatcher**: a watcher periodically to scan files under directories.
-- **TimerFileWatcher**: a watcher periodically to read and compare the stat of files to judge whether file is created/removed/inactive/silence.
-- **Timer Goroutine**: using one goroutine to run directory and file watcher.
+## Install
+
+```sh
+go get github.com/vogo/fwatch
+```
 
 ## Usage
 
 ```go
-// method: `fs` or `timer`, `fs` uses `fsnotify` to watch file create/remove events,
-//    while `timer` periodically reads and compares the stat of files to judge whether file is created/removed/inactive/silence.
-// inactive duration: a file is considered to be inactive if it's not being updated in the given duration.
-// silence duration: a file is considered to be silence and removed from watching files if it's not being updated in the given duration.
-fileWatcher, err := fwatch.New(method, inactiveDuration, silenceDuration)
-if err != nil {
-    fmt.Println(err)
-	return
-}
+package main
 
-go func() {
-	for {
-		select {
-		case <-fileWatcher.Runner.C:
-			return
-		case f := <-fileWatcher.Events:
-			fmt.Printf("--> events : %s, %v", f.Name, f.Event)
-		}
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/vogo/fwatch"
+)
+
+func main() {
+	// Create a watcher.
+	//   method: "fs" (fsnotify) or "timer" (polling)
+	//   inactiveDuration: file considered inactive after this duration without updates
+	//   silenceDuration:  file removed from watch list after this duration without updates
+	watcher, err := fwatch.New(fwatch.WatchMethodFS, 30*time.Second, 5*time.Minute)
+	if err != nil {
+		panic(err)
 	}
-}()
+	defer watcher.Stop()
 
-// only watch log files.
-matcher := func(s string) bool {
-    return strings.HasSuffix(s, ".log")
-}
+	// Consume events in a goroutine.
+	go func() {
+		for {
+			select {
+			case <-watcher.Runner.C:
+				return
+			case ev := <-watcher.Events:
+				fmt.Printf("event: %s %v\n", ev.Name, ev.Event)
+			case err := <-watcher.Errors:
+				fmt.Printf("error: %v\n", err)
+			}
+		}
+	}()
 
-if err = fileWatcher.WatchDir(tempDir, true, matcher); err != nil {
-	fmt.Println(err)
-	return
+	// Watch a directory (recursive), only matching .log files.
+	err = watcher.WatchDir("/var/log/app", true, func(name string) bool {
+		return strings.HasSuffix(name, ".log")
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// Block forever (or use your own shutdown mechanism).
+	select {}
 }
 ```
+
+## Watch Methods
+
+| Method | Constant | How it works |
+|--------|----------|-------------|
+| **fs** | `WatchMethodFS` | Uses [fsnotify](https://github.com/fsnotify/fsnotify) for OS-level file system notifications |
+| **timer** | `WatchMethodTimer` | Periodically polls file stat to detect changes |
+
+## Event Types
+
+| Event | Description |
+|-------|-------------|
+| `Create` | A new file is detected in the watched directory |
+| `Write` | An inactive file is modified again |
+| `Remove` | A file is deleted or moved away |
+| `Inactive` | A file has not been updated for `inactiveDuration` |
+| `Silence` | A file has not been updated for `silenceDuration`, removed from watch list |
+
+## Architecture
+
+![](doc/fwatch.svg)
+
+| Component | Description |
+|-----------|-------------|
+| **directories** | Watched directory tree |
+| **files** | Active and inactive files (excludes deleted/silence) |
+| **Events channel** | File lifecycle events |
+| **Errors channel** | Watch errors |
+| **FsDirWatcher** | OS-level directory watcher via fsnotify |
+| **TimerDirWatcher** | Periodic directory scanner |
+| **TimerFileWatcher** | Periodic file stat checker for lifecycle transitions |
+
+## CLI Tools
+
+Two command-line tools are included under `cmd/`:
+
+```sh
+# Watch a directory for file changes
+go run ./cmd/fwatch -dir /path/to/watch -method fs -include_sub -suffix .log
+
+# Watch a single file
+go run ./cmd/fswatch -f /path/to/file
+```
+
+## License
+
+Apache License 2.0
