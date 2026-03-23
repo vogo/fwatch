@@ -52,14 +52,13 @@ jobs:
           go install golang.org/x/tools/cmd/goimports@latest
           go install mvdan.cc/gofumpt@latest
           go install github.com/lluissm/license-header-checker/cmd/license-header-checker@latest
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
       - name: Go Fmt
         run: make format && git --no-pager diff && [[ -z `git status -s` ]]
 
       - name: Run Linter
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
+        run: golangci-lint run
 
       - name: Go Test
         run: make test
