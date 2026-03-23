@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/vogo/fwatch"
-	"github.com/vogo/logger"
+	"github.com/vogo/vogo/vlog"
 )
 
 const (
@@ -45,21 +45,21 @@ func main() {
 	flag.Parse()
 
 	if *dir == "" {
-		logger.Fatal("required parameter -dir")
+		vlog.Fatal("required parameter -dir")
 	}
 
 	if strings.EqualFold(*logLevel, "DEBUG") {
-		logger.SetLevel(logger.LevelDebug)
+		vlog.SetLevel(vlog.LevelDebug)
 	}
 
-	var watchMethod interface{} = *method
+	var watchMethod any = *method
 
 	inactiveDuration := time.Duration(*inactiveSeconds) * time.Second
 	silenceDuration := time.Duration(*silenceSeconds) * time.Second
 
 	watcher, err := fwatch.New(watchMethod.(fwatch.WatchMethod), inactiveDuration, silenceDuration)
 	if err != nil {
-		logger.Fatal(err)
+		vlog.Fatal(err)
 	}
 
 	defer func() {
@@ -72,9 +72,9 @@ func main() {
 			case <-watcher.Runner.C:
 				return
 			case watchErr := <-watcher.Errors:
-				logger.Infof("--> error: %v", watchErr)
+				vlog.Infof("--> error: %v", watchErr)
 			case f := <-watcher.Events:
-				logger.Infof("--> event: %v", f)
+				vlog.Infof("--> event: %v", f)
 			}
 		}
 	}()
@@ -82,7 +82,7 @@ func main() {
 	if dirErr := watcher.WatchDir(*dir, *includeSub, func(s string) bool {
 		return *fileSuffix == "" || strings.HasSuffix(s, *fileSuffix)
 	}); dirErr != nil {
-		logger.Fatal(dirErr)
+		vlog.Fatal(dirErr)
 	}
 
 	select {}

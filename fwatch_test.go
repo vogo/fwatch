@@ -24,13 +24,13 @@ import (
 	"time"
 
 	"github.com/vogo/fwatch"
-	"github.com/vogo/logger"
+	"github.com/vogo/vogo/vlog"
 )
 
 const (
-	inactiveSeconds  = 5
+	inactiveSeconds  = 2
 	inactiveDuration = time.Second * inactiveSeconds
-	silenceSeconds   = 10
+	silenceSeconds   = 4
 	silenceDuration  = time.Second * silenceSeconds
 
 	filePerm = 0o600
@@ -39,22 +39,32 @@ const (
 func TestFileWatcher(t *testing.T) {
 	t.Parallel()
 
-	logger.SetLevel(logger.LevelDebug)
+	vlog.SetLevel(vlog.LevelDebug)
 
-	doTestTypedFileWatcher(t, fwatch.WatchMethodTimer)
+	t.Run("Timer", func(t *testing.T) {
+		t.Parallel()
+		doTestTypedFileWatcher(t, fwatch.WatchMethodTimer)
+	})
 
-	doTestTypedFileWatcher(t, fwatch.WatchMethodFS)
+	t.Run("FS", func(t *testing.T) {
+		t.Parallel()
+		doTestTypedFileWatcher(t, fwatch.WatchMethodFS)
+	})
 }
 
 func doTestTypedFileWatcher(t *testing.T, method fwatch.WatchMethod) {
 	t.Helper()
 
-	otherDir := filepath.Join(os.TempDir(), "fwatch-other")
-	linkDir := filepath.Join(os.TempDir(), "fwatch-link")
-	tempDir := filepath.Join(os.TempDir(), "fwatch")
-	_ = os.Mkdir(otherDir, os.ModePerm)
-	_ = os.Mkdir(linkDir, os.ModePerm)
-	_ = os.Mkdir(tempDir, os.ModePerm)
+	// --- setup phase: prepare temp dirs, link files ---
+	t.Logf("[setup] watch method=%s, inactive=%v, silence=%v", method, inactiveDuration, silenceDuration)
+
+	tempDir := t.TempDir()
+	otherDir := t.TempDir()
+	linkDir := t.TempDir()
+
+	t.Logf("[setup] tempDir=%s", tempDir)
+	t.Logf("[setup] otherDir=%s", otherDir)
+	t.Logf("[setup] linkDir=%s", linkDir)
 
 	_ = os.WriteFile(filepath.Join(otherDir, "test1.txt"), []byte("test"), filePerm)
 	_ = os.WriteFile(filepath.Join(otherDir, "test2.txt"), []byte("test"), filePerm)
@@ -63,114 +73,120 @@ func doTestTypedFileWatcher(t *testing.T, method fwatch.WatchMethod) {
 	_ = os.Link(filepath.Join(otherDir, "test1.txt"), filepath.Join(tempDir, "link-test1.txt"))
 	_ = os.Symlink(filepath.Join(otherDir, "test2.txt"), filepath.Join(tempDir, "link-test2.txt"))
 	_ = os.Symlink(linkDir, filepath.Join(tempDir, "link-dir"))
+	t.Log("[setup] hard link, symlink, and link-dir created")
 
-	defer removeFile(otherDir)
-	defer removeFile(linkDir)
-	defer removeFile(tempDir)
+	// --- create watcher ---
+	t.Logf("[watcher] creating FileWatcher (method=%s)", method)
 
 	fileWatcher, err := fwatch.New(method, inactiveDuration, silenceDuration)
 	if err != nil {
-		t.Error(err)
-
-		return
+		t.Fatal(err)
 	}
+
+	t.Log("[watcher] FileWatcher created, starting event consumer")
 
 	go func() {
 		for {
 			select {
 			case <-fileWatcher.Runner.C:
 				return
-			case f := <-fileWatcher.Events:
-				logger.Infof("--> events : %s, %v", f.Name, f.Event)
+			case ev := <-fileWatcher.Events:
+				t.Logf("[event] %s | %v", ev.Name, ev.Event)
+			case watchErr := <-fileWatcher.Errors:
+				t.Logf("[error] %v", watchErr)
 			}
 		}
 	}()
 
+	// --- start watching ---
+	t.Logf("[watch] WatchDir(%s, includeSub=true)", tempDir)
+
 	if err = fileWatcher.WatchDir(tempDir, true, func(s string) bool {
 		return true
 	}); err != nil {
-		t.Error(err)
-
-		return
+		t.Fatal(err)
 	}
 
+	t.Logf("[watch] waiting %v for initial file detection", inactiveDuration)
 	time.Sleep(inactiveDuration)
 
-	startFileUpdater(tempDir, otherDir)
+	// --- file update phase ---
+	t.Log("[phase] starting file operations")
+	startFileUpdater(t, tempDir, otherDir)
 
+	// --- wait for remaining events ---
+	t.Logf("[phase] file operations done, waiting %v for remaining events", inactiveDuration)
 	time.Sleep(inactiveDuration)
 
-	removeFile(tempDir)
+	// --- cleanup phase ---
+	t.Log("[cleanup] removing watched directory")
+	_ = os.RemoveAll(tempDir)
 
+	t.Logf("[cleanup] waiting %v for removal events", inactiveDuration)
 	time.Sleep(inactiveDuration)
 
+	// --- stop watcher ---
+	t.Log("[stop] stopping FileWatcher")
 	_ = fileWatcher.Stop()
+	t.Log("[stop] FileWatcher stopped, test complete")
 }
 
-func startFileUpdater(dir, otherDir string) {
-	logger.Info("-------- 1. create test.txt")
+func startFileUpdater(t *testing.T, dir, otherDir string) {
+	t.Helper()
 
+	// step 1: create a new file
 	filePath := filepath.Join(dir, "test.txt")
+	t.Logf("[step 1/9] create file: %s", filePath)
 	_ = os.WriteFile(filePath, []byte("test"), filePerm)
+	sleep(t, inactiveSeconds+1, "wait for inactive detection")
 
-	sleep(inactiveSeconds+2, "")
-
-	logger.Info("-------- 2. update test.txt")
-
+	// step 2: update file content
+	t.Logf("[step 2/9] update file: %s", filePath)
 	_ = os.WriteFile(filePath, []byte("update1"), filePerm)
+	sleep(t, silenceSeconds+1, "wait for silence detection")
 
-	sleep(silenceSeconds+2, "test.txt should be consider being silence")
-
-	logger.Info("-------- 3. update test.txt again")
-
+	// step 3: update file again after silence
+	t.Logf("[step 3/9] update file again after silence: %s", filePath)
 	_ = os.WriteFile(filePath, []byte("update2"), filePerm)
+	sleep(t, inactiveSeconds+1, "wait for inactive detection")
 
-	sleep(inactiveSeconds+2, "")
+	// step 4: rename file within same directory
+	newPath := filepath.Join(dir, "test-1.txt")
+	t.Logf("[step 4/9] rename %s -> %s", filePath, newPath)
+	_ = os.Rename(filePath, newPath)
+	sleep(t, inactiveSeconds+1, "wait for rename detection")
 
-	logger.Info("--------  4. rename test.txt to test-1.txt")
-
-	_ = os.Rename(filePath, filepath.Join(dir, "test-1.txt"))
-
-	sleep(inactiveSeconds+2, "")
-
-	fromPath := filepath.Join(dir, "test-1.txt")
+	// step 5: move file to another directory
 	toPath := filepath.Join(otherDir, "test-1.txt")
-	logger.Infof("--------  5. rename %s to other dir %s\n", fromPath, toPath)
-	_ = os.Rename(fromPath, toPath)
+	t.Logf("[step 5/9] move %s -> %s (cross-dir)", newPath, toPath)
+	_ = os.Rename(newPath, toPath)
 
-	logger.Info("--------  6. create sub dir")
-
+	// step 6: create sub directory
 	subDir := filepath.Join(dir, "sub")
+	t.Logf("[step 6/9] create sub dir: %s", subDir)
 	_ = os.Mkdir(subDir, os.ModePerm)
+	sleep(t, inactiveSeconds+1, "wait for sub dir detection")
 
-	sleep(inactiveSeconds+2, "")
-
-	logger.Info("--------  7. create sub.txt in sub dir")
-
+	// step 7: create file in sub directory
 	subFile := filepath.Join(subDir, "sub.txt")
+	t.Logf("[step 7/9] create file in sub dir: %s", subFile)
 	_ = os.WriteFile(subFile, []byte("test"), filePerm)
+	sleep(t, inactiveSeconds+1, "wait for inactive detection")
 
-	sleep(inactiveSeconds+2, "")
-
-	logger.Info("--------  8. update sub.txt in sub dir")
-
+	// step 8: update file in sub directory
+	t.Logf("[step 8/9] update file in sub dir: %s", subFile)
 	_ = os.WriteFile(subFile, []byte("update 1"), filePerm)
+	sleep(t, silenceSeconds+1, "wait for silence detection")
 
-	sleep(silenceSeconds+2, "all files should be consider being silence")
-
-	logger.Info("--------  9. update sub.txt again in sub dir after a long time")
-
+	// step 9: update file in sub directory after long silence
+	t.Logf("[step 9/9] update file in sub dir after silence: %s", subFile)
 	_ = os.WriteFile(subFile, []byte("update 2"), filePerm)
-
-	sleep(silenceSeconds+2, "sub.txt should be consider being silence")
+	sleep(t, silenceSeconds+1, "wait for silence detection")
 }
 
-func sleep(seconds int64, message string) {
-	logger.Infof("\n  ==== sleep %ds --> %s\n", seconds, message)
+func sleep(t *testing.T, seconds int64, reason string) {
+	t.Helper()
+
+	t.Logf("         sleep %ds (%s)", seconds, reason)
 	time.Sleep(time.Second * time.Duration(seconds))
-}
-
-func removeFile(f string) {
-	logger.Infof("remove file: %s", f)
-	_ = os.RemoveAll(f)
 }

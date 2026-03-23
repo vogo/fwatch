@@ -1,5 +1,8 @@
 .idea
+.vscode
+
 dist
-fwatch
-fswatch
+/fwatch
+/fswatch
 coverage.txt
+coverage.out

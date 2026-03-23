@@ -22,8 +22,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/vogo/fsnotify"
-	"github.com/vogo/logger"
+	"github.com/fsnotify/fsnotify"
+	"github.com/vogo/vogo/vlog"
 )
 
 func (fw *FileWatcher) startFsDirWatcher() error {
@@ -33,8 +33,8 @@ func (fw *FileWatcher) startFsDirWatcher() error {
 	}
 
 	fw.newDirWatchInit = func(dir string) {
-		if dirErr := watcher.AddWatch(dir, FileCreateRemoveEvents); dirErr != nil {
-			logger.Errorf("fs watch dir error: %v, dir: %s", dirErr, dir)
+		if dirErr := watcher.Add(dir); dirErr != nil {
+			vlog.Errorf("fs watch dir error: %v, dir: %s", dirErr, dir)
 		}
 	}
 
@@ -45,7 +45,7 @@ func (fw *FileWatcher) startFsDirWatcher() error {
 
 func (fw *FileWatcher) fsWatchDir(dirWatcher *fsnotify.Watcher) {
 	defer func() {
-		logger.Warnf("stop watch directory")
+		vlog.Warnf("stop watch directory")
 
 		_ = dirWatcher.Close()
 	}()
@@ -56,7 +56,7 @@ func (fw *FileWatcher) fsWatchDir(dirWatcher *fsnotify.Watcher) {
 			return
 		case event, ok := <-dirWatcher.Events:
 			if !ok {
-				logger.Warnf("failed to listen watch event")
+				vlog.Warnf("failed to listen watch event")
 
 				return
 			}
@@ -64,18 +64,18 @@ func (fw *FileWatcher) fsWatchDir(dirWatcher *fsnotify.Watcher) {
 			fw.fsHandleDirEvent(dirWatcher, event)
 		case err, ok := <-dirWatcher.Errors:
 			if !ok {
-				logger.Warnf("failed to listen error event")
+				vlog.Warnf("failed to listen error event")
 
 				return
 			}
 
-			logger.Errorf("watch dir error: %v", err)
+			vlog.Errorf("watch dir error: %v", err)
 		}
 	}
 }
 
 func (fw *FileWatcher) fsHandleDirEvent(dirWatcher *fsnotify.Watcher, event fsnotify.Event) {
-	logger.Debugf("dir event: %v", event)
+	vlog.Debugf("dir event: %v", event)
 
 	// ignore root dir events
 	if event.Name == "" || event.Name == "." {
@@ -86,7 +86,7 @@ func (fw *FileWatcher) fsHandleDirEvent(dirWatcher *fsnotify.Watcher, event fsno
 	stat, ok := fw.dirs[baseDir]
 
 	if !ok {
-		logger.Warnf("unexpected event: %s", event)
+		vlog.Warnf("unexpected event: %s", event)
 
 		return
 	}
@@ -94,7 +94,7 @@ func (fw *FileWatcher) fsHandleDirEvent(dirWatcher *fsnotify.Watcher, event fsno
 	if event.Op != fsnotify.Remove && event.Op != fsnotify.Rename {
 		fileInfo, err := os.Stat(event.Name)
 		if err != nil {
-			logger.Warnf("stat error: %v, file: %s", err, event.Name)
+			vlog.Warnf("stat error: %v, file: %s", err, event.Name)
 
 			return
 		}

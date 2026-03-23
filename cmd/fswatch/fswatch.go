@@ -20,9 +20,8 @@ package main
 import (
 	"flag"
 
-	"github.com/vogo/fsnotify"
-	"github.com/vogo/fwatch"
-	"github.com/vogo/logger"
+	"github.com/fsnotify/fsnotify"
+	"github.com/vogo/vogo/vlog"
 )
 
 func main() {
@@ -32,35 +31,35 @@ func main() {
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		logger.Fatal(err)
+		vlog.Fatal(err)
 	}
 
 	defer func() {
 		_ = watcher.Close()
 	}()
 
-	if err = watcher.AddWatch(*filePath, fwatch.FileWriteRemoveEvents); err != nil {
-		logger.Fatal(err)
+	if err = watcher.Add(*filePath); err != nil {
+		vlog.Fatal(err)
 	}
 
 	for {
 		select {
 		case event, ok := <-watcher.Events:
 			if !ok {
-				logger.Warnf("failed to listen watch event")
+				vlog.Warnf("failed to listen watch event")
 
 				return
 			}
 
-			logger.Infof("event: %v", event)
+			vlog.Infof("event: %v", event)
 		case err, ok := <-watcher.Errors:
 			if !ok {
-				logger.Warnf("failed to listen error event")
+				vlog.Warnf("failed to listen error event")
 
 				return
 			}
 
-			logger.Errorf("watch error: %v", err)
+			vlog.Errorf("watch error: %v", err)
 		}
 	}
 }

@@ -24,13 +24,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vogo/gorun"
-	"github.com/vogo/logger"
+	"github.com/vogo/vogo/vlog"
+	"github.com/vogo/vogo/vsync/vrun"
 )
 
 const (
 	defaultMapSize           = 32
-	minimalInactiveDeadline  = 5 * time.Second
+	minimalInactiveDeadline  = time.Second
 	defaultDirFileCountLimit = 128
 )
 
@@ -102,7 +102,7 @@ type FileWatcher struct {
 	mu sync.Mutex
 
 	// Runner to control watching goroutines.
-	Runner *gorun.Runner
+	Runner *vrun.Runner
 
 	// watch method, fs or timer.
 	method WatchMethod
@@ -151,7 +151,7 @@ func New(watchMethod WatchMethod, inactiveDeadline, silenceDeadline time.Duratio
 
 	fileWatcher := &FileWatcher{
 		mu:                sync.Mutex{},
-		Runner:            gorun.New(),
+		Runner:            vrun.New(),
 		method:            watchMethod,
 		inactiveDuration:  inactiveDeadline,
 		silenceDuration:   silenceDeadline,
@@ -226,7 +226,7 @@ func (fw *FileWatcher) tryAddNewSubDir(info os.FileInfo, dir string, parentDirSt
 		return
 	}
 
-	logger.Infof("add new dir: %s", dir)
+	vlog.Infof("add new dir: %s", dir)
 
 	newDirStat := &DirStat{
 		modTime:    info.ModTime().Add(-time.Second),
@@ -246,13 +246,13 @@ func (fw *FileWatcher) tryAddNewFile(path string, fileInfo os.FileInfo, silenceD
 	}
 
 	if !fileInfo.ModTime().After(silenceDeadline) {
-		logger.Tracef("ignore file(%s) for modTime(%v) reach the silence deadline(%v)",
+		vlog.Tracef("ignore file(%s) for modTime(%v) reach the silence deadline(%v)",
 			fileInfo.Name(), fileInfo.ModTime(), silenceDeadline)
 
 		return
 	}
 
-	logger.Tracef("add new file: %s", path)
+	vlog.Tracef("add new file: %s", path)
 
 	fw.newFiles[path] = &FileStat{
 		active:  true,

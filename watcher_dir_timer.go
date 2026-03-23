@@ -24,7 +24,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/vogo/logger"
+	"github.com/vogo/vogo/vlog"
 )
 
 var ErrTooManyDirFile = errors.New("too many files under directory")
@@ -50,15 +50,15 @@ func (fw *FileWatcher) checkDirInfo(dir string, dirInfo os.FileInfo, dirStat *Di
 	// dir mod time is updated only when creating or removing sub files.
 	// not need to check files in directory if dir mod time not updated.
 	if !dirInfo.ModTime().After(dirStat.modTime) {
-		logger.Tracef("ignore not updated dir: %s", dirInfo.Name())
+		vlog.Tracef("ignore not updated dir: %s", dirInfo.Name())
 
 		return
 	}
 
 	dirStat.modTime = dirInfo.ModTime()
 
-	logger.Debugf("start check dir: %s", dir)
-	defer logger.Debugf("end check dir: %s", dir)
+	vlog.Debugf("start check dir: %s", dir)
+	defer vlog.Debugf("end check dir: %s", dir)
 
 	fileInfos, err := openCheckDir(dir, fw.dirFileCountLimit)
 	if err != nil {
@@ -78,7 +78,7 @@ func (fw *FileWatcher) checkDirInfo(dir string, dirInfo os.FileInfo, dirStat *Di
 	for _, fileInfo := range fileInfos {
 		filePath, isDirPath, fileInfo, pathErr = unlink(filepath.Join(dir, fileInfo.Name()), fileInfo)
 		if pathErr != nil {
-			logger.Debugf("read file error：%v", pathErr)
+			vlog.Debugf("read file error：%v", pathErr)
 
 			continue
 		}
@@ -90,7 +90,7 @@ func (fw *FileWatcher) checkDirInfo(dir string, dirInfo os.FileInfo, dirStat *Di
 		}
 
 		if !dirStat.matcher(fileInfo.Name()) {
-			logger.Tracef("ignore file for not match: %s", fileInfo.Name())
+			vlog.Tracef("ignore file for not match: %s", fileInfo.Name())
 
 			continue
 		}
@@ -125,7 +125,7 @@ func openCheckDir(dir string, dirFileCountLimit int) ([]os.FileInfo, error) {
 }
 
 func (fw *FileWatcher) handleDirError(dir string, _ *DirStat, err error) {
-	logger.Debugf("ignore dir %s for %v", dir, err)
+	vlog.Debugf("ignore dir %s for %v", dir, err)
 
 	delete(fw.dirs, dir)
 

@@ -20,64 +20,52 @@ name: CI
 
 on:
   push:
-    branches: [ master, develop ]
+    branches: [master, develop]
   pull_request:
     branches: "*"
-  pull_request_target:
-    branches: "*"
+
+permissions:
+  contents: read
 
 jobs:
-
   build:
     name: ${{ matrix.os }} - Go ${{ matrix.go_version }}
     runs-on: ${{ matrix.os }}
     strategy:
-      # If you want to matrix build , you can append the following list.
       matrix:
         go_version:
-          - 1.16
-
+          - "1.25"
         os:
           - ubuntu-latest
 
     steps:
+      - name: Check out code
+        uses: actions/checkout@v4
 
-      - name: Set up Go 1.x
-        uses: actions/setup-go@v2
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go_version }}
-        id: go
 
       - name: Install tools
         run: |
-          go get golang.org/x/tools/cmd/goimports
-          go get -u mvdan.cc/gofumpt
+          go install golang.org/x/tools/cmd/goimports@latest
+          go install mvdan.cc/gofumpt@latest
           go install github.com/lsm-dev/license-header-checker/cmd/license-header-checker@latest
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.41.1
-
-      - name: Check out code into the Go module directory
-        uses: actions/checkout@v2
-
-      - name: Cache dependencies
-        uses: actions/cache@v2
-        with:
-          # Cache
-          path: ~/go/pkg/mod
-          # Cache key
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          # An ordered list of keys to use for restoring the cache if no cache hit occurred for key
-          restore-keys: |
-            ${{ runner.os }}-go-
 
       - name: Go Fmt
         run: make format && git --no-pager diff && [[ -z `git status -s` ]]
 
       - name: Run Linter
-        run: make check
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
 
       - name: Go Test
         run: make test
 
-      - name: Coverage
-        run: bash <(curl -s https://codecov.io/bash)
-
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.out
+          token: ${{ secrets.CODECOV_TOKEN }}

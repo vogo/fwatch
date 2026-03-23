@@ -37,13 +37,11 @@ func unlink(path string, info os.FileInfo) (unlinkPath string, dir bool, fileInf
 
 	for info.Mode()&os.ModeSymlink != 0 {
 		path, err = filepath.EvalSymlinks(path)
-
 		if err != nil {
 			return "", false, nil, err
 		}
 
 		info, err = os.Lstat(path)
-
 		if err != nil {
 			return "", false, nil, err
 		}
