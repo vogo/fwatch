@@ -249,7 +249,7 @@ func TestStatsAndUnwatchDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer w.Stop()
+	defer func() { _ = w.Stop() }()
 
 	// drain events
 	go func() {
