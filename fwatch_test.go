@@ -343,8 +343,8 @@ func TestWatchDirErrors(t *testing.T) {
 	t.Parallel()
 
 	w, err := fwatch.New(
-		fwatch.WithInactiveDuration(2 * time.Second),
-		fwatch.WithSilenceDuration(5 * time.Second),
+		fwatch.WithInactiveDuration(2*time.Second),
+		fwatch.WithSilenceDuration(5*time.Second),
 	)
 	if err != nil {
 		t.Fatal(err)
