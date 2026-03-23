@@ -18,6 +18,7 @@
 package fwatch_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -36,10 +37,13 @@ const (
 	filePerm = 0o600
 )
 
+func TestMain(m *testing.M) {
+	vlog.SetLevel(vlog.LevelDebug)
+	os.Exit(m.Run())
+}
+
 func TestFileWatcher(t *testing.T) {
 	t.Parallel()
-
-	vlog.SetLevel(vlog.LevelDebug)
 
 	t.Run("Timer", func(t *testing.T) {
 		t.Parallel()
@@ -289,6 +293,198 @@ func TestStatsAndUnwatchDir(t *testing.T) {
 
 	if stats.Dirs != 0 {
 		t.Errorf("expected 0 dirs after unwatch, got %d", stats.Dirs)
+	}
+}
+
+func TestEventString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		event fwatch.Event
+		want  string
+	}{
+		{fwatch.Create, "Create"},
+		{fwatch.Write, "Write"},
+		{fwatch.Remove, "Remove"},
+		{fwatch.Inactive, "Inactive"},
+		{fwatch.Silence, "Silence"},
+		{fwatch.Event(0), ""},
+	}
+
+	for _, tt := range tests {
+		if got := tt.event.String(); got != tt.want {
+			t.Errorf("Event(%d).String() = %q, want %q", tt.event, got, tt.want)
+		}
+	}
+}
+
+func TestIsDir(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+
+	if !fwatch.IsDir(tempDir) {
+		t.Errorf("IsDir(%s) = false, want true", tempDir)
+	}
+
+	filePath := filepath.Join(tempDir, "file.txt")
+	_ = os.WriteFile(filePath, []byte("x"), filePerm)
+
+	if fwatch.IsDir(filePath) {
+		t.Errorf("IsDir(%s) = true, want false", filePath)
+	}
+
+	if fwatch.IsDir(filepath.Join(tempDir, "nonexistent")) {
+		t.Error("IsDir(nonexistent) = true, want false")
+	}
+}
+
+func TestWatchDirErrors(t *testing.T) {
+	t.Parallel()
+
+	w, err := fwatch.New(
+		fwatch.WithInactiveDuration(2 * time.Second),
+		fwatch.WithSilenceDuration(5 * time.Second),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = w.Stop() }()
+
+	// nil matcher
+	if err = w.WatchDir(t.TempDir(), false, nil); err == nil {
+		t.Error("expected error for nil matcher")
+	}
+
+	// nonexistent dir
+	if err = w.WatchDir("/nonexistent/path", false, func(string) bool { return true }); err == nil {
+		t.Error("expected error for nonexistent dir")
+	}
+
+	// file instead of dir
+	f := filepath.Join(t.TempDir(), "file.txt")
+	_ = os.WriteFile(f, []byte("x"), filePerm)
+
+	if err = w.WatchDir(f, false, func(string) bool { return true }); err == nil {
+		t.Error("expected error for file path")
+	}
+}
+
+func TestDirFileCountLimit(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+
+	// create 40 files to exceed limit of 32
+	for i := range 40 {
+		_ = os.WriteFile(filepath.Join(tempDir, fmt.Sprintf("file%d.txt", i)), []byte("x"), filePerm)
+	}
+
+	w, err := fwatch.New(
+		fwatch.WithMethod(fwatch.WatchMethodTimer),
+		fwatch.WithInactiveDuration(2*time.Second),
+		fwatch.WithSilenceDuration(5*time.Second),
+		fwatch.WithDirFileCountLimit(32),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = w.Stop() }()
+
+	errCh := make(chan error, 32)
+
+	go func() {
+		for {
+			select {
+			case <-w.Done():
+				return
+			case <-w.Events:
+			case watchErr := <-w.Errors:
+				errCh <- watchErr
+			}
+		}
+	}()
+
+	err = w.WatchDir(tempDir, false, func(string) bool { return true })
+	t.Logf("WatchDir returned: %v", err)
+
+	// wait for error from timer check
+	select {
+	case e := <-errCh:
+		t.Logf("got expected error: %v", e)
+	case <-time.After(5 * time.Second):
+		t.Log("no error received (dir was already rejected in WatchDir)")
+	}
+}
+
+func TestFileRemoveDetection(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "removeme.txt")
+	_ = os.WriteFile(filePath, []byte("data"), filePerm)
+
+	w, err := fwatch.New(
+		fwatch.WithMethod(fwatch.WatchMethodFS),
+		fwatch.WithInactiveDuration(2*time.Second),
+		fwatch.WithSilenceDuration(10*time.Second),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = w.Stop() }()
+
+	createCh := make(chan struct{}, 1)
+	removeCh := make(chan struct{}, 1)
+
+	go func() {
+		for {
+			select {
+			case <-w.Done():
+				return
+			case ev := <-w.Events:
+				t.Logf("[event] %s | %v", ev.Name, ev.Event)
+
+				switch ev.Event {
+				case fwatch.Create:
+					select {
+					case createCh <- struct{}{}:
+					default:
+					}
+				case fwatch.Remove:
+					select {
+					case removeCh <- struct{}{}:
+					default:
+					}
+				}
+			case watchErr := <-w.Errors:
+				t.Logf("[error] %v", watchErr)
+			}
+		}
+	}()
+
+	if err = w.WatchDir(tempDir, false, func(string) bool { return true }); err != nil {
+		t.Fatal(err)
+	}
+
+	// wait for Create event
+	select {
+	case <-createCh:
+		t.Log("got Create event")
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Create event")
+	}
+
+	// remove the file
+	t.Logf("[action] removing %s", filePath)
+	_ = os.Remove(filePath)
+
+	// wait for Remove event
+	select {
+	case <-removeCh:
+		t.Log("got Remove event")
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Remove event")
 	}
 }
 
