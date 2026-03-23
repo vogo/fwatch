@@ -26,11 +26,7 @@ const (
 )
 
 func calcInterval(deadline time.Duration) time.Duration {
-	interval := min(deadline/watchTimeFactor, maxFsWatcherTimerInterval)
-
-	if interval < minFsWatcherTimerInterval {
-		interval = minFsWatcherTimerInterval
-	}
+	interval := max(min(deadline/watchTimeFactor, maxFsWatcherTimerInterval), minFsWatcherTimerInterval)
 
 	return interval
 }
@@ -89,4 +85,3 @@ func (fw *FileWatcher) timerCheck(now time.Time) {
 		delete(fw.newFiles, f)
 	}
 }
-

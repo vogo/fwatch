@@ -46,7 +46,6 @@ func (fw *FileWatcher) startFsDirWatcher() error {
 }
 
 func (fw *FileWatcher) fsWatchDir(dirWatcher *fsnotify.Watcher) {
-
 	for {
 		select {
 		case <-fw.runner.C:
