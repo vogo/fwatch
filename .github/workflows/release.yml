@@ -71,13 +71,6 @@ jobs:
           GOOS=darwin  GOARCH=arm64 go build -o dist/fwatch-darwin-arm64       ./cmd/fwatch
           GOOS=windows GOARCH=amd64 go build -o dist/fwatch-windows-amd64.exe ./cmd/fwatch
 
-          # fswatch
-          GOOS=linux   GOARCH=amd64 go build -o dist/fswatch-linux-amd64        ./cmd/fswatch
-          GOOS=linux   GOARCH=arm64 go build -o dist/fswatch-linux-arm64        ./cmd/fswatch
-          GOOS=darwin  GOARCH=amd64 go build -o dist/fswatch-darwin-amd64       ./cmd/fswatch
-          GOOS=darwin  GOARCH=arm64 go build -o dist/fswatch-darwin-arm64       ./cmd/fswatch
-          GOOS=windows GOARCH=amd64 go build -o dist/fswatch-windows-amd64.exe ./cmd/fswatch
-
           # compress
           cd dist
           for f in *; do

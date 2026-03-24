@@ -3,6 +3,5 @@
 
 dist
 /fwatch
-/fswatch
 coverage.txt
 coverage.out

@@ -19,9 +19,12 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/vogo/fwatch"
 	"github.com/vogo/vogo/vlog"
 )
@@ -33,30 +36,98 @@ const (
 
 func main() {
 	var (
-		dir             = flag.String("dir", "", "directory to watch")
-		method          = flag.String("method", "timer", "watch method, fs/timer")
-		logLevel        = flag.String("log_level", "", "log level(debug/info)")
-		includeSub      = flag.Bool("include_sub", false, "whether include sub-directories")
-		fileSuffix      = flag.String("suffix", "", "file suffix to watch")
-		inactiveSeconds = flag.Int64("inactive_seconds", defaultInactiveSeconds, "after seconds files is inactive")
-		silenceSeconds  = flag.Int64("silence_seconds", defaultSilenceSeconds, "after seconds files is silence")
+		file            = flag.String("file", "", "watch a single file for changes")
+		dir             = flag.String("dir", "", "watch a directory for file changes")
+		method          = flag.String("method", "timer", "watch method: fs (OS-level fsnotify) or timer (polling)")
+		logLevel        = flag.String("log_level", "", "log level: debug or info")
+		includeSub      = flag.Bool("include_sub", false, "include sub-directories when watching a directory")
+		fileSuffix      = flag.String("suffix", "", "only watch files with this suffix (e.g. .log)")
+		inactiveSeconds = flag.Int64("inactive_seconds", defaultInactiveSeconds, "seconds before a file is considered inactive")
+		silenceSeconds  = flag.Int64("silence_seconds", defaultSilenceSeconds, "seconds before a file is removed from watch")
 	)
+
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, `fwatch - a command line file and directory watcher to show the functionality of fwatch library
+
+Usage:
+  fwatch -file <path>                     Watch a single file
+  fwatch -dir <path> [options]            Watch a directory
+
+Examples:
+  fwatch -file /var/log/app.log
+  fwatch -dir /var/log -method fs -include_sub -suffix .log
+  fwatch -dir /tmp -inactive_seconds 30 -silence_seconds 120
+
+Options:
+`)
+		flag.PrintDefaults()
+	}
 
 	flag.Parse()
 
-	if *dir == "" {
-		vlog.Fatal("required parameter -dir")
+	if *file == "" && *dir == "" {
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	if *file != "" && *dir != "" {
+		fmt.Fprintln(os.Stderr, "error: -file and -dir cannot be used together")
+		os.Exit(1)
 	}
 
 	if strings.EqualFold(*logLevel, "DEBUG") {
 		vlog.SetLevel(vlog.LevelDebug)
 	}
 
-	inactiveDuration := time.Duration(*inactiveSeconds) * time.Second
-	silenceDuration := time.Duration(*silenceSeconds) * time.Second
+	if *file != "" {
+		watchFile(*file)
+	} else {
+		watchDir(*dir, *method, *includeSub, *fileSuffix, *inactiveSeconds, *silenceSeconds)
+	}
+}
+
+func watchFile(filePath string) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		vlog.Fatal(err)
+	}
+
+	defer func() {
+		_ = watcher.Close()
+	}()
+
+	if err = watcher.Add(filePath); err != nil {
+		vlog.Fatal(err)
+	}
+
+	for {
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				vlog.Warnf("failed to listen watch event")
+
+				return
+			}
+
+			vlog.Infof("event: %v", event)
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				vlog.Warnf("failed to listen error event")
+
+				return
+			}
+
+			vlog.Errorf("watch error: %v", err)
+		}
+	}
+}
+
+func watchDir(dir, method string, includeSub bool, fileSuffix string, inactiveSeconds, silenceSeconds int64) {
+	inactiveDuration := time.Duration(inactiveSeconds) * time.Second
+	silenceDuration := time.Duration(silenceSeconds) * time.Second
 
 	watcher, err := fwatch.New(
-		fwatch.WithMethod(fwatch.WatchMethod(*method)),
+		fwatch.WithMethod(fwatch.WatchMethod(method)),
 		fwatch.WithInactiveDuration(inactiveDuration),
 		fwatch.WithSilenceDuration(silenceDuration),
 	)
@@ -81,8 +152,8 @@ func main() {
 		}
 	}()
 
-	if dirErr := watcher.WatchDir(*dir, *includeSub, func(s string) bool {
-		return *fileSuffix == "" || strings.HasSuffix(s, *fileSuffix)
+	if dirErr := watcher.WatchDir(dir, includeSub, func(s string) bool {
+		return fileSuffix == "" || strings.HasSuffix(s, fileSuffix)
 	}); dirErr != nil {
 		vlog.Fatal(dirErr)
 	}

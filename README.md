@@ -120,17 +120,22 @@ func main() {
 | **TimerDirWatcher** | Periodic directory scanner |
 | **TimerFileWatcher** | Periodic file stat checker for lifecycle transitions |
 
-## CLI Tools
+## CLI Tool
 
-Two command-line tools are included under `cmd/`:
+A command-line tool is included under `cmd/fwatch`:
 
 ```sh
+# Watch a single file
+go run ./cmd/fwatch -file /var/log/app.log
+
 # Watch a directory for file changes
 go run ./cmd/fwatch -dir /path/to/watch -method fs -include_sub -suffix .log
 
-# Watch a single file
-go run ./cmd/fswatch -f /path/to/file
+# Watch a directory with custom timeouts
+go run ./cmd/fwatch -dir /tmp -inactive_seconds 30 -silence_seconds 120
 ```
+
+Run `fwatch -h` to see all available options.
 
 ## License
 
